@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Logs
+logs/
+
+# Git
+commit.txt
+release.txt
+
+# Docker
+.docker/
+
+# IDE
+.idea/
+.vscode/

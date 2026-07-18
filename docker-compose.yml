@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    container_name: test-mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    command: mosquitto -c /mosquitto/config/mosquitto.conf
+
+  mock-dbus:
+    build:
+      context: ./mock-dbus
+    container_name: test-dbus
+    environment:
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=1883
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-runner
+    container_name: test-runner
+    environment:
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=1883
+      - DASHBOARD_URL=ws://dashboard-go:8080/ws
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+      dashboard-go:
+        condition: service_started
+    volumes:
+      - ./tests:/app/tests:ro
+
+  # Services under test (enable by creating Dockerfile.test in each project)
+  # inverter-control:
+  #   build:
+  #     context: ../inverter-control
+  #     dockerfile: Dockerfile.test
+  #   environment:
+  #     - MQTT_HOST=mqtt-broker
+  #     - MQTT_PORT=1883
+  #   depends_on:
+  #     - mqtt-broker
+  #     - mock-dbus
+
+  # dashboard-go:
+  #   build:
+  #     context: ../inverter-dashboard-go
+  #     dockerfile: Dockerfile.test
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - MQTT_HOST=mqtt-broker
+  #   depends_on:
+  #     - mqtt-broker

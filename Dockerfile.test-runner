@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    pytest \
+    pytest-asyncio \
+    paho-mqtt \
+    websockets
+
+COPY tests /app/tests
+COPY conftest.py /app/
+
+CMD ["pytest", "tests/", "-v", "--tb=short"]
