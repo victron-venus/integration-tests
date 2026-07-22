@@ -5,7 +5,6 @@ import json
 import os
 import time
 
-import pytest
 import paho.mqtt.client as mqtt
 
 
@@ -29,6 +28,7 @@ class TestBatteryMock:
     """Verify mock battery publisher topics."""
 
     def test_battery_soc_topic(self):
+        """Mock battery should publish SOC to jbd/bms/1 topics."""
         client, messages = _mqtt_client()
         client.subscribe("jbd/bms/1/#")
 
@@ -54,6 +54,7 @@ class TestPVMock:
     """Verify mock Tasmota PV publisher topics."""
 
     def test_tasmota_energy_topic(self):
+        """Mock PV should publish power to tele/tasmota-pv topics."""
         client, messages = _mqtt_client()
         client.subscribe("tele/tasmota-pv/#")
 
@@ -63,11 +64,7 @@ class TestPVMock:
             for topic, payload in messages:
                 if "tasmota-pv" in topic:
                     data = json.loads(payload)
-                    power = (
-                        data.get("StatusSNS", {})
-                        .get("ENERGY", {})
-                        .get("Power")
-                    )
+                    power = data.get("StatusSNS", {}).get("ENERGY", {}).get("Power")
                     if power is not None and power >= 0:
                         found_power = True
                         break

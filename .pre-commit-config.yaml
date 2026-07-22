@@ -23,3 +23,5 @@ repos:
   rev: v3.2.0
   hooks:
   - id: pylint
+    additional_dependencies: [pytest, paho-mqtt, websockets]
+    files: tests/

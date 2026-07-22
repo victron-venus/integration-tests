@@ -13,6 +13,7 @@ try:
     import paho.mqtt.client as mqtt
 except ImportError:
     import sys
+
     print("ERROR: paho-mqtt not installed")
     sys.exit(1)
 
@@ -179,7 +180,7 @@ class DbusPublisher:
                 "ac": {
                     "L1": {"P": grid_power / 2},
                     "L2": {"P": -grid_power / 2},
-                }
+                },
             }
             self.client.publish("venus/dbus/system/0/SystemType", json.dumps(state))
 

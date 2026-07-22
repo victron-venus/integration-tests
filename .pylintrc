@@ -1,0 +1,10 @@
+[MASTER]
+ignore=test_
+extension-pkg-allow-list=pytest
+
+[MESSAGES CONTROL]
+disable=
+    too-few-public-methods,
+    redefined-outer-name,
+    broad-exception-caught,
+    missing-final-newline
