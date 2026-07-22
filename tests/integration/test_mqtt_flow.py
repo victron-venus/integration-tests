@@ -220,7 +220,7 @@ class TestDashboardReceivesState:
             raise
 
     @pytest.mark.asyncio
-    @pytest.mark.skipif(not _is_dashboard_available, reason="Dashboard not available")
+    @pytest.mark.skipif(not _is_dashboard_available(), reason="Dashboard not available")
     async def test_receives_initial_state(self, config: TestConfig) -> None:  # noqa: W0621
         """Dashboard should send initial state on connect."""
         ws = WebSocketClient(config.dashboard_url)

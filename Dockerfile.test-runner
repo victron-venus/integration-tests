@@ -1,19 +1,17 @@
 # Dockerfile.test for integration testing
 # Uses environment variables for MQTT connection
 
-FROM ghcr.io/victron-venus/inverter-dashboard-go:latest
+FROM python:3.11-slim
 
+WORKDIR /app
 ENV MQTT_HOST=${MQTT_HOST:-mqtt-broker}
 ENV MQTT_PORT=${MQTT_PORT:-1883}
 
-# Pin Python packages for reproducibility
 RUN pip install --no-cache-dir --only-binary :all: \
     pytest==7.4.0 \
     pytest-asyncio==0.21.0 \
     paho-mqtt==2.1.0 \
     websockets==12.0
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget -q --spider http://localhost:8080/api/state || exit 1
-
-EXPOSE 8080
+COPY tests /app/tests
+CMD ["pytest", "tests/", "-v", "--tb=short"]
