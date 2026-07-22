@@ -3,9 +3,37 @@
 Environment for testing the complete data flow:
 - MQTT broker (eclipse-mosquitto:2)
 - Mock D-Bus (simulates Venus OS)
-- inverter-control (real service)
-- inverter-dashboard-go (real dashboard)
+- Mock battery publisher (JBD BMS MQTT topics)
+- Mock PV publisher (Tasmota energy topics)
 - pytest test runner
+
+Optional services (uncomment in `docker-compose.yml` when Dockerfiles exist):
+- inverter-control
+- inverter-dashboard-go
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Docker["Docker Compose"]
+        MQTT["mosquitto\nMQTT Broker"]
+        DBD["mock-dbus\nSimulates Venus OS"]
+        BAT["mock-battery\nJBD BMS topics"]
+        PV["mock-pv\nTasmota ENERGY"]
+        TEST["test-runner\npytest"]
+    end
+
+    DBD -->|"publish"| MQTT
+    BAT -->|"jbd/bms/#"| MQTT
+    PV -->|"tele/tasmota-pv/#"| MQTT
+    MQTT -->|"subscribe"| TEST
+
+    style MQTT fill:#c0c0c0,color:#000
+    style DBD fill:#f1c40f,color:#000
+    style BAT fill:#2ecc71,color:#fff
+    style PV fill:#f39c12,color:#000
+    style TEST fill:#9b59b6,color:#fff
+```
 
 ## Quick Start
 
@@ -26,13 +54,16 @@ docker compose down -v
 ## Expected Test Flow
 
 1. mosquitto starts (port 1883)
-2. mock-dbus publishes simulated sensor data
-3. inverter-control subscribes and publishes to inverter/state
-4. dashboard-go subscribes to MQTT, exposes via WebSocket
-5. test-runner verifies:
-   - MQTT pub/sub roundtrip
-   - inverter/state format
-   - WebSocket state propagation
+2. mock-dbus, mock-battery, and mock-pv publish simulated data
+3. test-runner verifies:
+   - MQTT pub/sub roundtrip (`test_mqtt_flow.py`)
+   - Battery SOC topics (`test_battery_pv_mocks.py`)
+   - Tasmota PV power topics (`test_battery_pv_mocks.py`)
+   - WebSocket state propagation (when dashboard-go is enabled)
+
+## CI
+
+Scheduled weekly and on every push to `main` via `.github/workflows/integration.yml`.
 
 ## Debugging
 

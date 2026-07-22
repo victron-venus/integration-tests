@@ -181,7 +181,7 @@ class DbusPublisher:
                     "L2": {"P": -grid_power / 2},
                 }
             }
-            self.client.publish(" venus/dbus/system/0/SystemType", json.dumps(state))
+            self.client.publish("venus/dbus/system/0/SystemType", json.dumps(state))
 
             # Simulate Ve.Bus state
             vebus_state = {
