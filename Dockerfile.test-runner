@@ -9,6 +9,5 @@ RUN pip install --no-cache-dir \
     websockets
 
 COPY tests /app/tests
-COPY conftest.py /app/
 
 CMD ["pytest", "tests/", "-v", "--tb=short"]
