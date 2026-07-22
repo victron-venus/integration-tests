@@ -5,8 +5,9 @@ Simulates Victron D-Bus services (system, Ve.Bus, PV inverters).
 """
 
 import json
-import time
 import os
+import tempfile
+import time
 from pathlib import Path
 
 try:
@@ -17,9 +18,9 @@ except ImportError:
     print("ERROR: paho-mqtt not installed")
     sys.exit(1)
 
-# D-Bus mock paths
-SYSTEM_SERVICE = "/tmp/mock_dbus_system.json"
-VEBUS_SERVICE = "/tmp/mock_dbus_vebus.json"
+# Secure temp directory for mock D-Bus files (mode 0o700 = owner-only)
+_MOCK_DB_TMPDIR = tempfile.mkdtemp(prefix="mock_dbus_")
+os.chmod(_MOCK_DB_TMPDIR, 0o700)
 
 
 class MockDBusService:
@@ -28,7 +29,9 @@ class MockDBusService:
     def __init__(self, service_name: str):
         self._service_name = service_name
         self._paths = {}
-        self._json_file = f"/tmp/mock_dbus_{service_name.replace('.', '_')}.json"
+        self._json_file = os.path.join(
+            _MOCK_DB_TMPDIR, f"mock_dbus_{service_name.replace('.', '_')}.json"
+        )
 
     def add_path(self, path: str, initial_value=None, writeable=False, **kwargs):
         self._paths[path] = {

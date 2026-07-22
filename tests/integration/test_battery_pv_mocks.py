@@ -3,9 +3,26 @@
 
 import json
 import os
+import socket
 import time
 
 import paho.mqtt.client as mqtt
+import pytest
+
+
+def _is_mqtt_available():
+    """Check if MQTT broker is reachable."""
+    host = os.getenv("MQTT_HOST", "localhost")
+    port = int(os.getenv("MQTT_PORT", "1883"))
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2)
+    try:
+        sock.connect((host, port))
+        return True
+    except (TimeoutError, ConnectionRefusedError, OSError):
+        return False
+    finally:
+        sock.close()
 
 
 def _mqtt_client():
@@ -27,6 +44,7 @@ def _mqtt_client():
 class TestBatteryMock:
     """Verify mock battery publisher topics."""
 
+    @pytest.mark.skipif(not _is_mqtt_available(), reason="MQTT broker not available")
     def test_battery_soc_topic(self):
         """Mock battery should publish SOC to jbd/bms/1 topics."""
         client, messages = _mqtt_client()
@@ -53,6 +71,7 @@ class TestBatteryMock:
 class TestPVMock:
     """Verify mock Tasmota PV publisher topics."""
 
+    @pytest.mark.skipif(not _is_mqtt_available(), reason="MQTT broker not available")
     def test_tasmota_energy_topic(self):
         """Mock PV should publish power to tele/tasmota-pv topics."""
         client, messages = _mqtt_client()

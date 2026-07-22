@@ -1,7 +1,7 @@
 # Dockerfile.test for integration testing
 # Uses environment variables for MQTT connection
 
-FROM ghcr.io/victron-venus/inverter-dashboard-go:latest
+FROM ghcr.io/victron-venus/inverter-dashboard-go:v1.2.0
 
 ENV MQTT_HOST=${MQTT_HOST:-mqtt-broker}
 ENV MQTT_PORT=${MQTT_PORT:-1883}

@@ -10,14 +10,45 @@ Tests the complete MQTT message path:
 
 import asyncio
 import json
-import time
 import os
+import socket
+import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
-import pytest
 import paho.mqtt.client as mqtt
+import pytest
 import websockets
+
+MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+
+
+def _check_socket(host: str, port: int) -> bool:
+    """Check if a TCP port is reachable."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2)
+    try:
+        sock.connect((host, port))
+        return True
+    except (TimeoutError, ConnectionRefusedError, OSError):
+        return False
+    finally:
+        sock.close()
+
+
+def _is_mqtt_available() -> bool:
+    """Check if MQTT broker is reachable."""
+    return _check_socket(MQTT_HOST, MQTT_PORT)
+
+
+def _is_dashboard_available() -> bool:
+    """Check if dashboard is reachable."""
+    url = os.getenv("DASHBOARD_URL", "ws://localhost:8080/ws")
+    host_port = url.replace("ws://", "").replace("wss://", "").split("/")[0].split(":")
+    host = host_port[0]
+    port = int(host_port[1]) if len(host_port) > 1 else 80
+    return _check_socket(host, port)
 
 
 @dataclass
@@ -87,9 +118,7 @@ class MqttClient:
         """Publish to MQTT topic."""
         self.client.publish(topic, payload)
 
-    def wait_for_message(
-        self, topic: str, timeout: float = 5.0
-    ) -> Optional[dict[str, Any]]:
+    def wait_for_message(self, topic: str, timeout: float = 5.0) -> dict[str, Any] | None:
         """Wait for a message on topic, return parsed JSON."""
         start = time.time()
         while time.time() - start < timeout:
@@ -125,7 +154,7 @@ class WebSocketClient:
             self.connected = False
             raise
 
-    def get_latest_state(self) -> Optional[dict[str, Any]]:
+    def get_latest_state(self) -> dict[str, Any] | None:
         """Get the latest state from WebSocket messages."""
         for msg in reversed(self.messages):
             if "gt" in msg or "battery_soc" in msg:
@@ -142,8 +171,11 @@ def config() -> TestConfig:
 @pytest.fixture
 def mqtt_client(config: TestConfig) -> MqttClient:
     """Provide MQTT client fixture."""
+    if not _is_mqtt_available():
+        pytest.skip("MQTT broker not available")
     client = MqttClient(config.mqtt_host, config.mqtt_port)
-    assert client.connect(), "Failed to connect to MQTT broker"
+    if not client.connect():
+        pytest.skip("Failed to connect to MQTT broker")
     yield client
     client.disconnect()
 
@@ -173,10 +205,11 @@ class TestDashboardReceivesState:
     """Test that dashboard receives and exposes state."""
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(not _is_dashboard_available(), reason="Dashboard not available")
     async def test_websocket_connection(self, config: TestConfig) -> None:  # noqa: W0621
         """Dashboard WebSocket should accept connections."""
+        ws = WebSocketClient(config.dashboard_url)
         try:
-            ws = WebSocketClient(config.dashboard_url)
             await asyncio.wait_for(ws.connect(), timeout=5.0)
             assert ws.connected, "WebSocket not connected"
         except OSError as e:
@@ -185,10 +218,9 @@ class TestDashboardReceivesState:
             ) or "Name or service not known" in str(e):
                 pytest.skip(f"Dashboard service not available: {config.dashboard_url}")
             raise
-        except Exception as e:  # noqa: BLE001
-            pytest.fail(f"WebSocket connection failed: {e}")
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(not _is_dashboard_available(), reason="Dashboard not available")
     async def test_receives_initial_state(self, config: TestConfig) -> None:  # noqa: W0621
         """Dashboard should send initial state on connect."""
         ws = WebSocketClient(config.dashboard_url)
@@ -198,11 +230,15 @@ class TestDashboardReceivesState:
             await asyncio.sleep(2)  # Wait for connection + initial state
 
             initial_state = ws.get_latest_state()
-            if initial_state:
-                # State should have typical inverter fields
-                assert "version" in initial_state or "gt" in initial_state
-        except Exception as e:  # noqa: BLE001
-            pytest.skip(f"Dashboard not ready: {e}")
+            # Assert BEFORE potential OSError - move out of try to avoid silent pass
+        except OSError:
+            pytest.skip("Dashboard not ready")
+
+        if initial_state:
+            # State should have typical inverter fields
+            assert "version" in initial_state or "gt" in initial_state, (
+                "Initial state should contain 'version' or 'gt' field"
+            )
 
 
 class TestControlLoopIntegration:
@@ -216,7 +252,7 @@ class TestControlLoopIntegration:
         mqtt_client.subscribe(topic)
         mqtt_client.publish(topic, payload)
 
-        result: Optional[dict[str, Any]] = None
+        result: dict[str, Any] | None = None
         for _ in range(20):
             for msg in mqtt_client.messages:
                 if msg["topic"] == topic:
@@ -234,7 +270,7 @@ class TestControlLoopIntegration:
         mqtt_client.subscribe("inverter/state")
         time.sleep(2)
 
-        state_topic: Optional[dict[str, Any]] = None
+        state_topic: dict[str, Any] | None = None
         for msg in mqtt_client.messages:
             if msg["topic"] == "inverter/state":
                 state_topic = msg

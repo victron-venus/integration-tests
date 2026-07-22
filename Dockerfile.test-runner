@@ -1,13 +1,17 @@
+# Dockerfile.test for integration testing
+# Uses environment variables for MQTT connection
+
 FROM python:3.11-slim
 
 WORKDIR /app
+ENV MQTT_HOST=${MQTT_HOST:-mqtt-broker}
+ENV MQTT_PORT=${MQTT_PORT:-1883}
 
-RUN pip install --no-cache-dir \
-    pytest \
-    pytest-asyncio \
-    paho-mqtt \
-    websockets
+RUN pip install --no-cache-dir --only-binary :all: \
+    pytest==7.4.0 \
+    pytest-asyncio==0.21.0 \
+    paho-mqtt==2.1.0 \
+    websockets==12.0
 
 COPY tests /app/tests
-
 CMD ["pytest", "tests/", "-v", "--tb=short"]
