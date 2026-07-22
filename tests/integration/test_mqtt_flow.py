@@ -123,6 +123,7 @@ class WebSocketClient:
                     self.messages.append(json.loads(msg))
         except OSError:
             self.connected = False
+            raise
 
     def get_latest_state(self) -> Optional[dict[str, Any]]:
         """Get the latest state from WebSocket messages."""
