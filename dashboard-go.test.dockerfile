@@ -10,3 +10,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget -q --spider http://localhost:8080/api/state || exit 1
 
 EXPOSE 8080
+
+# Run as non-root user for security
+USER 1000

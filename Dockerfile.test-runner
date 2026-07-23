@@ -8,10 +8,12 @@ ENV MQTT_HOST=${MQTT_HOST:-mqtt-broker}
 ENV MQTT_PORT=${MQTT_PORT:-1883}
 
 RUN pip install --no-cache-dir --only-binary :all: \
+    paho-mqtt==2.1.0 \
     pytest==7.4.0 \
     pytest-asyncio==0.21.0 \
-    paho-mqtt==2.1.0 \
     websockets==12.0
 
 COPY tests /app/tests
+RUN groupadd --gid 1000 appgroup && useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
+USER appuser
 CMD ["pytest", "tests/", "-v", "--tb=short"]
