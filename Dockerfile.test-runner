@@ -16,6 +16,6 @@ RUN pip install --no-cache-dir --only-binary :all: \
     useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser && \
     chown -R appuser:appgroup /app
 
-COPY --chown=appuser:appgroup tests /app/tests
+COPY --chown=root:root --chmod=755 tests /app/tests
 USER appuser
 CMD ["pytest", "tests/", "-v", "--tb=short"]
