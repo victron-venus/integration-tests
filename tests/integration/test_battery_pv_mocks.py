@@ -2,95 +2,81 @@
 """Integration tests for battery and PV MQTT mock publishers."""
 
 import json
-import os
-import socket
 import time
 
-import paho.mqtt.client as mqtt
 import pytest
 
+from tests.conftest import MqttClient, is_mqtt_available
 
-def _is_mqtt_available():
-    """Check if MQTT broker is reachable."""
-    host = os.getenv("MQTT_HOST", "localhost")
-    port = int(os.getenv("MQTT_PORT", "1883"))
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(2)
-    try:
-        sock.connect((host, port))
-        return True
-    except (TimeoutError, ConnectionRefusedError, OSError):
-        return False
-    finally:
-        sock.close()
-
-
-def _mqtt_client():
-    host = os.getenv("MQTT_HOST", "localhost")
-    port = int(os.getenv("MQTT_PORT", "1883"))
-    messages = []
-
-    def on_message(_client, _userdata, msg):
-        messages.append((msg.topic, msg.payload.decode()))
-
-    client = mqtt.Client(client_id=f"test-battery-pv-{int(time.time())}")
-    client.on_message = on_message
-    client.connect(host, port)
-    client.loop_start()
-    time.sleep(0.3)
-    return client, messages
+pytestmark = pytest.mark.skipif(not is_mqtt_available(), reason="MQTT broker not available")
 
 
 class TestBatteryMock:
     """Verify mock battery publisher topics."""
 
-    @pytest.mark.skipif(not _is_mqtt_available(), reason="MQTT broker not available")
-    def test_battery_soc_topic(self):
+    def test_battery_soc_topic(self, mqtt_client: MqttClient) -> None:
         """Mock battery should publish SOC to jbd/bms/1 topics."""
-        client, messages = _mqtt_client()
-        client.subscribe("jbd/bms/1/#")
+        mqtt_client.subscribe("jbd/bms/1/#")
+        time.sleep(3)
 
-        found_soc = False
-        deadline = time.time() + 10
-        while time.time() < deadline:
-            for topic, payload in messages:
-                if topic.endswith("/soc") or topic.endswith("/state"):
-                    data = json.loads(payload)
-                    if "soc" in data or "value" in data:
-                        found_soc = True
-                        break
-            if found_soc:
-                break
-            time.sleep(0.2)
+        soc_values = []
+        for msg in mqtt_client.messages:
+            if msg["topic"].endswith("/soc") or msg["topic"].endswith("/state"):
+                data = json.loads(msg["payload"])
+                val = data.get("value") or data.get("soc")
+                if val is not None:
+                    soc_values.append(float(val))
 
-        client.loop_stop()
-        client.disconnect()
-        assert found_soc, "Expected battery SOC on jbd/bms/1 topics"
+        assert soc_values, "Expected battery SOC on jbd/bms/1 topics"
+        assert all(0 <= v <= 100 for v in soc_values), (
+            f"SOC values {soc_values} outside 0-100 range"
+        )
+
+    def test_battery_voltage_topic(self, mqtt_client: MqttClient) -> None:
+        """Mock battery should publish voltage to jbd/bms/1/voltage."""
+        mqtt_client.subscribe("jbd/bms/1/voltage")
+        time.sleep(3)
+
+        messages = mqtt_client.messages_on("jbd/bms/1/voltage")
+        assert messages, "No voltage messages received"
+
+        data = json.loads(messages[0]["payload"])
+        voltage = data.get("value")
+        assert voltage is not None, "Voltage payload missing 'value' key"
+        assert isinstance(voltage, int | float), f"Voltage {voltage} is not numeric"
+        assert voltage > 0, f"Voltage should be positive, got {voltage}"
 
 
 class TestPVMock:
     """Verify mock Tasmota PV publisher topics."""
 
-    @pytest.mark.skipif(not _is_mqtt_available(), reason="MQTT broker not available")
-    def test_tasmota_energy_topic(self):
+    def test_tasmota_energy_topic(self, mqtt_client: MqttClient) -> None:
         """Mock PV should publish power to tele/tasmota-pv topics."""
-        client, messages = _mqtt_client()
-        client.subscribe("tele/tasmota-pv/#")
+        mqtt_client.subscribe("tele/tasmota-pv/#")
+        time.sleep(3)
 
-        found_power = False
-        deadline = time.time() + 10
-        while time.time() < deadline:
-            for topic, payload in messages:
-                if "tasmota-pv" in topic:
-                    data = json.loads(payload)
-                    power = data.get("StatusSNS", {}).get("ENERGY", {}).get("Power")
-                    if power is not None and power >= 0:
-                        found_power = True
-                        break
-            if found_power:
-                break
-            time.sleep(0.2)
+        powers = []
+        for msg in mqtt_client.messages:
+            if "tasmota-pv" in msg["topic"]:
+                data = json.loads(msg["payload"])
+                power = data.get("StatusSNS", {}).get("ENERGY", {}).get("Power")
+                if power is not None:
+                    powers.append(float(power))
 
-        client.loop_stop()
-        client.disconnect()
-        assert found_power, "Expected Tasmota ENERGY.Power on tele/tasmota-pv/STATE"
+        assert powers, "Expected Tasmota ENERGY.Power on tele/tasmota-pv/STATE"
+        assert all(p >= 0 for p in powers), f"PV power should be >= 0, got {powers}"
+
+    def test_tasmota_voltage_format(self, mqtt_client: MqttClient) -> None:
+        """Tasmota payload should include Voltage and Current."""
+        mqtt_client.subscribe("tele/tasmota-pv/STATE")
+        time.sleep(3)
+
+        messages = mqtt_client.messages_on("tele/tasmota-pv/STATE")
+        assert messages, "No STATE messages from tasmota-pv"
+
+        data = json.loads(messages[0]["payload"])
+        energy = data.get("StatusSNS", {}).get("ENERGY", {})
+        assert "Voltage" in energy, "ENERGY missing Voltage"
+        assert "Current" in energy, "ENERGY missing Current"
+        assert isinstance(energy["Voltage"], int | float)
+        assert isinstance(energy["Current"], int | float)

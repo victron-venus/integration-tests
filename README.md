@@ -51,19 +51,29 @@ docker compose logs -f test-runner
 docker compose down -v
 ```
 
-## Expected Test Flow
+## Test Scenarios
 
-1. mosquitto starts (port 1883)
-2. mock-dbus, mock-battery, and mock-pv publish simulated data
-3. test-runner verifies:
-   - MQTT pub/sub roundtrip (`test_mqtt_flow.py`)
-   - Battery SOC topics (`test_battery_pv_mocks.py`)
-   - Tasmota PV power topics (`test_battery_pv_mocks.py`)
-   - WebSocket state propagation (when dashboard-go is enabled)
+### MQTT Flow (`test_mqtt_flow.py`)
+- MQTT pub/sub roundtrip
+- Inverter state publishing to `inverter/state`
+- State JSON format validation
+- WebSocket state propagation (when dashboard-go is enabled)
+
+### Battery & PV Mocks (`test_battery_pv_mocks.py`)
+- Battery SOC, voltage on `jbd/bms/1/#` topics
+- Tasmota PV power on `tele/tasmota-pv/#` topics
+
+### D-Bus Battery/PV Scenarios (`test_dbus_battery_pv.py`)
+- **Battery D-Bus**: SOC oscillation, voltage range, current polarity, state aggregation
+- **PV D-Bus**: SystemType payload, grid power noise, Ve.Bus state=9 (Inverting)
+- **End-to-end**: Concurrent battery+PV publishing, PV power updates, cell voltage consistency
+- **Control loop latency**: D-Bus → MQTT propagation under 5 seconds
 
 ## CI
 
-Scheduled weekly and on every push to `main` via `.github/workflows/integration.yml`.
+Runs on every push to `main`, every PR, and **daily at 04:00 UTC** via `.github/workflows/integration.yml`.
+
+Manual dispatch supported via GitHub Actions UI.
 
 ## Debugging
 
@@ -82,3 +92,4 @@ c.connect('mqtt-broker', 1883)
 c.subscribe('inverter/#')
 c.loop_forever()
 "
+```

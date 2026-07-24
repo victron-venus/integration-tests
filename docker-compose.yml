@@ -55,6 +55,8 @@ services:
     depends_on:
       mqtt-broker:
         condition: service_started
+      mock-dbus:
+        condition: service_started
       mock-battery:
         condition: service_started
       mock-pv:
