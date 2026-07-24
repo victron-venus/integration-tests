@@ -13,8 +13,9 @@ RUN pip install --no-cache-dir --only-binary :all: \
     pytest-asyncio==0.21.0 \
     websockets==12.0 && \
     groupadd --gid 1000 appgroup && \
-    useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
+    useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser && \
+    chown -R appuser:appgroup /app
 
-COPY tests /app/tests
+COPY --chown=appuser:appgroup tests /app/tests
 USER appuser
 CMD ["pytest", "tests/", "-v", "--tb=short"]
