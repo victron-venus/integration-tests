@@ -153,7 +153,10 @@ class DbusPublisher:
     def __init__(self, broker: str, port: int):
         self.broker = broker
         self.port = port
-        self.client = mqtt.Client(client_id="mock-dbus-publisher")
+        self.client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+            client_id="mock-dbus-publisher",
+        )
         self.client.on_connect = self._on_connect
         self.last_dbus_state = {}
 

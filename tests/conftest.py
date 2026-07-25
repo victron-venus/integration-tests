@@ -67,7 +67,10 @@ class MqttClient:
     def __init__(self, host: str, port: int) -> None:
         self.host = host
         self.port = port
-        self.client = mqtt.Client(client_id=f"test-{int(time.time())}")
+        self.client = mqtt.Client(
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+            client_id=f"test-{int(time.time())}",
+        )
         self.connected = False
         self.messages: list[dict[str, Any]] = []
 

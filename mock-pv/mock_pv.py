@@ -14,7 +14,10 @@ import paho.mqtt.client as mqtt
 def main():
     host = os.getenv("MQTT_HOST", "localhost")
     port = int(os.getenv("MQTT_PORT", "1883"))
-    client = mqtt.Client(client_id="mock-pv-publisher")
+    client = mqtt.Client(
+        callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+        client_id="mock-pv-publisher",
+    )
     client.connect(host, port)
     client.loop_start()
 
