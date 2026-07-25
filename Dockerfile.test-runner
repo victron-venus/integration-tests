@@ -1,7 +1,7 @@
 # Dockerfile.test for integration testing
 # Uses environment variables for MQTT connection
 
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 ENV MQTT_HOST=${MQTT_HOST:-mqtt-broker}
