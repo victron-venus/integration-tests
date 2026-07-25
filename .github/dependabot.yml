@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily
+
+  - package-ecosystem: docker
+    directory: /mock-battery
+    schedule:
+      interval: daily
+
+  - package-ecosystem: docker
+    directory: /mock-dbus
+    schedule:
+      interval: daily
+
+  - package-ecosystem: docker
+    directory: /mock-pv
+    schedule:
+      interval: daily
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: daily
