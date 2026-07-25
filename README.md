@@ -1,5 +1,10 @@
 # Integration Tests
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/victron-venus/integration-tests/actions/workflows/ci.yml/badge.svg)](https://github.com/victron-venus/integration-tests/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-supported-blue.svg)](https://www.docker.com/)
+
 Environment for testing the complete data flow:
 - MQTT broker (eclipse-mosquitto:2)
 - Mock D-Bus (simulates Venus OS)
