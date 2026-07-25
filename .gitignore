@@ -16,3 +16,5 @@ release.txt
 # IDE
 .idea/
 .vscode/
+
+*.bak
