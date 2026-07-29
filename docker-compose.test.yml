@@ -1,0 +1,77 @@
+# Test-specific Docker Compose additions
+# This file extends the base docker-compose.yml with test-specific services
+
+services:
+  # Test runner container (built from Dockerfile.test-runner)
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-runner
+    container_name: test-runner
+    environment:
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=1883
+      - DASHBOARD_URL=ws://dashboard:8080/ws
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+      mock-dbus:
+        condition: service_started
+      mock-battery:
+        condition: service_started
+      mock-pv:
+        condition: service_started
+    volumes:
+      - ./tests:/app/tests:ro
+
+  # Optional: inverter-dashboard (Python/FastAPI) test service
+  # Build from parent repo if available
+  dashboard-python:
+    build:
+      context: ../inverter-dashboard
+      dockerfile: Dockerfile.test
+    container_name: dashboard-python
+    ports:
+      - "8080:8080"
+    environment:
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=1883
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+    profiles:
+      - dashboard
+
+  # Optional: inverter-dashboard-go test service
+  dashboard-go:
+    build:
+      context: ../inverter-dashboard-go
+      dockerfile: Dockerfile.test
+    container_name: dashboard-go
+    ports:
+      - "8081:8080"
+    environment:
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=1883
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+    profiles:
+      - dashboard
+
+  # Optional: inverter-control test service
+  inverter-control:
+    build:
+      context: ../inverter-control
+      dockerfile: Dockerfile.test
+    container_name: inverter-control
+    ports:
+      - "8082:8080"
+    environment:
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=1883
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+    profiles:
+      - dashboard

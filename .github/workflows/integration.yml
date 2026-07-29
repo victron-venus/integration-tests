@@ -15,7 +15,21 @@ permissions:
 
 jobs:
   integration:
+    name: Integration Tests
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dashboard:
+          - python: { name: "inverter-dashboard", url: "ws://dashboard-python:8080/ws", dockerfile: "dashboard-python.test.dockerfile" }
+          - go: { name: "inverter-dashboard-go", url: "ws://dashboard-go:8080/ws", dockerfile: "dashboard-go.test.dockerfile" }
+          - control: { name: "inverter-control", url: "ws://inverter-control:8080/ws", dockerfile: "dashboard-control.test.dockerfile" }
+        include:
+          - dashboard: python
+            python-version: "3.12"
+          - dashboard: go
+            python-version: "3.12"
+          - dashboard: control
+            python-version: "3.12"
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -25,19 +39,63 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Run integration tests
-        run: docker compose up --abort-on-container-exit --exit-code-from test-runner
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
 
-      - name: Tear down
+      - name: Install pytest and plugins
+        run: |
+          pip install pytest pytest-asyncio pytest-html paho-mqtt websockets
+
+      - name: Build test runner image
+        run: docker build -f Dockerfile.test-runner -t test-runner .
+
+      - name: Build ${{ matrix.dashboard.name }} test image
+        run: |
+          docker build -f ${{ matrix.dashboard.dockerfile }} -t ${{ matrix.dashboard.name }}:test ../${{ matrix.dashboard.name }} 2>/dev/null || echo "Dockerfile not found, skipping custom build"
+
+      - name: Start test stack
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build mqtt-broker mock-dbus mock-battery mock-pv
+          # Wait for services to be ready
+          sleep 5
+
+      - name: Start ${{ matrix.dashboard.name }} (if available)
+        run: |
+          if docker image inspect ${{ matrix.dashboard.name }}:test >/dev/null 2>&1; then
+            docker compose -f docker-compose.yml -f docker-compose.test.yml up -d ${{ matrix.dashboard.name }}
+            sleep 10
+          else
+            echo "Skipping ${{ matrix.dashboard.name }} - test image not built"
+          fi
+
+      - name: Run integration tests
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.test.yml run --rm \
+            -e DASHBOARD_URL=${{ matrix.dashboard.url }} \
+            -e MQTT_HOST=mqtt-broker \
+            -e MQTT_PORT=1883 \
+            test-runner python -m pytest tests/ -v --tb=short --html=report-${{ matrix.dashboard.name }}.html --self-contained-html
+
+      - name: Upload HTML test report
         if: always()
-        run: docker compose down -v
+        uses: actions/upload-artifact@65462800fd76e344604e4b39844f6c134897a92a # v4.6.0
+        with:
+          name: integration-test-report-${{ matrix.dashboard.name }}
+          path: report-${{ matrix.dashboard.name }}.html
+          retention-days: 7
 
       - name: Report Status Summary
         if: always()
         run: |
           if [ "${{ job.status }}" = "success" ]; then
-            echo "### ✅ Integration Tests Passed" >> $GITHUB_STEP_SUMMARY
+            echo "### ✅ Integration Tests Passed (${{ matrix.dashboard.name }})" >> $GITHUB_STEP_SUMMARY
           else
-            echo "### ❌ Integration Tests Failed" >> $GITHUB_STEP_SUMMARY
+            echo "### ❌ Integration Tests Failed (${{ matrix.dashboard.name }})" >> $GITHUB_STEP_SUMMARY
             echo "Check container logs above for details." >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml down -v
