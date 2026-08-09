@@ -190,7 +190,8 @@ class TestBatteryPVEndToEnd:
         v_min = json.loads(v_min_msgs[0]["payload"]).get("value")
         v_max = json.loads(v_max_msgs[0]["payload"]).get("value")
 
-        assert v_min is not None and v_max is not None
+        assert v_min is not None
+        assert v_max is not None
         assert v_min <= v_max, f"Cell min {v_min}V > max {v_max}V"
         assert 2.5 <= v_min <= 4.5, f"Cell min {v_min}V outside realistic range"
         assert 2.5 <= v_max <= 4.5, f"Cell max {v_max}V outside realistic range"

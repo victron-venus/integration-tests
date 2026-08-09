@@ -46,7 +46,7 @@ jobs:
 
       - name: Install pytest and plugins
         run: |
-          pip install pytest pytest-asyncio pytest-html paho-mqtt websockets
+          pip install --only-binary :all: pytest pytest-asyncio pytest-html paho-mqtt websockets
 
       - name: Build test runner image
         run: docker build -f Dockerfile.test-runner -t test-runner .
