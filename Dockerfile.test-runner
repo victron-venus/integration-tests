@@ -9,8 +9,8 @@ ENV MQTT_PORT=${MQTT_PORT:-1883}
 
 RUN pip install --no-cache-dir --only-binary :all: \
     paho-mqtt==2.1.0 \
-    pytest-asyncio==0.21.0 \
     pytest==7.4.0 \
+    pytest-asyncio==0.21.0 \
     pytest-html==4.1.1 \
     websockets==12.0 && \
     groupadd --gid 1000 appgroup && \
