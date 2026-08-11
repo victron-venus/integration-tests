@@ -1,4 +1,4 @@
-FROM python@sha256:3a9d2dd3f18e5c7a9d8de7b3659418a4ab848ccd409fb9e91ef9d7a6a3520ba7
+FROM python@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 
 WORKDIR /app
 RUN pip install --no-cache-dir --only-binary :all: paho-mqtt==2.1.0
