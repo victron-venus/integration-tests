@@ -1,4 +1,4 @@
-FROM python@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
+FROM python@sha256:297cf11d0b98b38ac26a56136f0279df845314bcd0347c1f6383fee6e75125ee
 WORKDIR /app
 RUN pip install --no-cache-dir --only-binary :all: paho-mqtt==2.1.0 && \
     groupadd --gid 1000 appgroup && useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
