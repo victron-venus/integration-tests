@@ -80,6 +80,35 @@ Runs on every push to `main`, every PR, and **daily at 04:00 UTC** via `.github/
 
 Manual dispatch supported via GitHub Actions UI.
 
+### Reusable workflow (required status check)
+
+Consumer projects (`inverter-control`, `inverter-dashboard`, `inverter-dashboard-go`) call this via `workflow_call` and add the resulting job as a **required check** in their branch protection rules.
+
+#### Add to consumer workflow
+
+```yaml
+# .github/workflows/ci.yml
+jobs:
+  integration-tests:
+    uses: victron-venus/integration-tests/.github/workflows/integration.yml@main
+```
+
+#### Set required check in branch protection
+
+1. Repo **Settings → Branches → Branch protection rules** for `main`.
+2. Under **Status checks that are required**, add the check named:
+   - `integration-tests / integration` — for `workflow_call` consumers (recommended)
+3. Enable **Require status checks to pass before merging**.
+
+> The job key is `integration`; its display name is `Integration Tests`. When called via `workflow_call`, GitHub surfaces the check as `<consumer-job-name> / integration` in branch protection.
+
+### Artifacts
+
+Each run uploads (retention: 7 days):
+- `integration-test-report-<dashboard>.html` — HTML test report
+- `integration-junit-<dashboard>.xml` — JUnit XML
+- `integration-logs-<dashboard>/` — container/stack logs
+
 ## Completed Features
 
 - ✅ **CI Execution & Security**: Scheduled daily runs, hardened runner, and GitHub Step Summary reporting configured

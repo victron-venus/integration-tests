@@ -9,6 +9,7 @@ on:
     # Daily 04:00 UTC
     - cron: '0 4 * * *'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -81,7 +82,9 @@ jobs:
             -e DASHBOARD_URL=${{ matrix.dashboard.url }} \
             -e MQTT_HOST=mqtt-broker \
             -e MQTT_PORT=1883 \
-            test-runner python -m pytest tests/ -v --tb=short --html=report-${{ matrix.dashboard.name }}.html --self-contained-html
+            test-runner python -m pytest tests/ -v --tb=short \
+              --html=report-${{ matrix.dashboard.name }}.html --self-contained-html \
+              --junitxml=junit-${{ matrix.dashboard.name }}.xml
 
       - name: Upload HTML test report
         if: always()
@@ -89,6 +92,35 @@ jobs:
         with:
           name: integration-test-report-${{ matrix.dashboard.name }}
           path: report-${{ matrix.dashboard.name }}.html
+          retention-days: 7
+
+      - name: Upload JUnit XML
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-junit-${{ matrix.dashboard.name }}
+          path: junit-${{ matrix.dashboard.name }}.xml
+          retention-days: 7
+
+      - name: Collect container logs
+        if: always()
+        run: |
+          mkdir -p container-logs-${{ matrix.dashboard.name }}
+          docker compose -f docker-compose.yml -f docker-compose.test.yml logs \
+            --no-color --timestamps \
+            mqtt-broker mock-dbus mock-battery mock-pv \
+            > container-logs-${{ matrix.dashboard.name }}/stack.log 2>&1 || true
+          if [ -d "../${{ matrix.dashboard.name }}/logs" ]; then
+            cp -r ../${{ matrix.dashboard.name }}/logs container-logs-${{ matrix.dashboard.name }}/ || true
+          fi
+        continue-on-error: true
+
+      - name: Upload container logs artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-logs-${{ matrix.dashboard.name }}
+          path: container-logs-${{ matrix.dashboard.name }}
           retention-days: 7
 
       - name: Report Status Summary
