@@ -83,11 +83,16 @@ class TestDashboardReceivesState:
     @pytest.mark.asyncio
     @pytest.mark.skipif(not is_dashboard_available(), reason="Dashboard not available")
     async def test_websocket_connection(self, config: TestConfig) -> None:  # noqa: W0621
-        """Dashboard WebSocket should accept connections."""
-        ws = WebSocketClient(config.dashboard_url)
+        """Dashboard WebSocket should accept connections and send initial state."""
+        # Do not use WebSocketClient.connect() here: that helper loops forever on
+        # recv(), so wait_for() always times out on a healthy keep-alive socket.
         try:
-            await asyncio.wait_for(ws.connect(), timeout=5.0)
-            assert ws.connected, "WebSocket not connected"
+            async with websockets.connect(config.dashboard_url) as ws:
+                msg = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                payload = json.loads(msg)
+                assert isinstance(payload, dict), (
+                    "initial WebSocket payload should be a JSON object"
+                )
         except OSError as e:
             if "Temporary failure in name resolution" in str(
                 e
