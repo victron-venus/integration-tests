@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Daily 04:00 UTC
     - cron: '0 4 * * *'
   workflow_dispatch:
   workflow_call:
@@ -16,123 +15,71 @@ permissions:
 
 jobs:
   integration:
-    name: Integration Tests
+    name: Integration Tests (${{ matrix.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
-        dashboard:
-          - python: { name: "inverter-dashboard", url: "ws://dashboard-python:8080/ws", dockerfile: "dashboard-python.test.dockerfile" }
-          - go: { name: "inverter-dashboard-go", url: "ws://dashboard-go:8080/ws", dockerfile: "dashboard-go.test.dockerfile" }
-          - control: { name: "inverter-control", url: "ws://inverter-control:8080/ws", dockerfile: "dashboard-control.test.dockerfile" }
         include:
-          - dashboard: python
-            python-version: "3.12"
-          - dashboard: go
-            python-version: "3.12"
-          - dashboard: control
-            python-version: "3.12"
+          - name: python
+            repository: victron-venus/inverter-dashboard
+            ref: ccde631cade6d381b87614cb21c464c7ad024cd4
+            dockerfile: dashboard-python.test.dockerfile
+          - name: go
+            repository: victron-venus/inverter-dashboard-go
+            ref: a8efdabd0646fd688e48cef9b5fbcc1263c1df9d
+            dockerfile: sources/dashboard/Dockerfile
     steps:
       - name: Harden the runner
-        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
         with:
           egress-policy: audit
-
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Checkout integration tests
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout pinned dashboard source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install pytest and plugins
-        run: |
-          pip install --only-binary :all: \
-            paho-mqtt==2.1.0 \
-            pytest==7.4.0 \
-            pytest-asyncio==0.21.0 \
-            pytest-html==4.1.1 \
-            websockets==12.0
-
-      - name: Build test runner image
-        run: docker build -f Dockerfile.test-runner -t test-runner .
-
-      - name: Build ${{ matrix.dashboard.name }} test image
-        run: |
-          docker build -f ${{ matrix.dashboard.dockerfile }} -t ${{ matrix.dashboard.name }}:test ../${{ matrix.dashboard.name }} 2>/dev/null || echo "Dockerfile not found, skipping custom build"
-
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.ref }}
+          path: sources/dashboard
+          persist-credentials: false
+      - name: Build selected dashboard
+        run: docker build -f "${{ matrix.dockerfile }}" -t dashboard-under-test:ci sources/dashboard
       - name: Start test stack
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build mqtt-broker mock-dbus mock-battery mock-pv
-          # Wait for services to be ready
-          sleep 5
-
-      - name: Start ${{ matrix.dashboard.name }} (if available)
-        run: |
-          if docker image inspect ${{ matrix.dashboard.name }}:test >/dev/null 2>&1; then
-            docker compose -f docker-compose.yml -f docker-compose.test.yml up -d ${{ matrix.dashboard.name }}
-            sleep 10
-          else
-            echo "Skipping ${{ matrix.dashboard.name }} - test image not built"
-          fi
-
+          mkdir -p reports
+          chmod 777 reports
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build mqtt-broker mock-dbus mock-battery mock-pv dashboard
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml build test-runner
+      - name: Wait for MQTT and dashboard readiness
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm test-runner python tests/wait_ready.py
       - name: Run integration tests
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.test.yml run --rm \
-            -e DASHBOARD_URL=${{ matrix.dashboard.url }} \
-            -e MQTT_HOST=mqtt-broker \
-            -e MQTT_PORT=1883 \
-            test-runner python -m pytest tests/ -v --tb=short \
-              --html=report-${{ matrix.dashboard.name }}.html --self-contained-html \
-              --junitxml=junit-${{ matrix.dashboard.name }}.xml
-
-      - name: Upload HTML test report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: integration-test-report-${{ matrix.dashboard.name }}
-          path: report-${{ matrix.dashboard.name }}.html
-          retention-days: 7
-
-      - name: Upload JUnit XML
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: integration-junit-${{ matrix.dashboard.name }}
-          path: junit-${{ matrix.dashboard.name }}.xml
-          retention-days: 7
-
-      - name: Collect container logs
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm test-runner \
+            python -m pytest tests/integration/ -v --tb=short \
+            --html=/reports/report.html --self-contained-html --junitxml=/reports/junit.xml
+      - name: Collect logs
         if: always()
         run: |
-          mkdir -p container-logs-${{ matrix.dashboard.name }}
-          docker compose -f docker-compose.yml -f docker-compose.test.yml logs \
-            --no-color --timestamps \
-            mqtt-broker mock-dbus mock-battery mock-pv \
-            > container-logs-${{ matrix.dashboard.name }}/stack.log 2>&1 || true
-          if [ -d "../${{ matrix.dashboard.name }}/logs" ]; then
-            cp -r ../${{ matrix.dashboard.name }}/logs container-logs-${{ matrix.dashboard.name }}/ || true
-          fi
-        continue-on-error: true
-
-      - name: Upload container logs artifact
+          mkdir -p reports
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color > reports/containers.log
+      - name: Upload test reports and logs
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: integration-logs-${{ matrix.dashboard.name }}
-          path: container-logs-${{ matrix.dashboard.name }}
+          name: integration-${{ matrix.name }}
+          path: reports/
           retention-days: 7
-
-      - name: Report Status Summary
-        if: always()
-        run: |
-          if [ "${{ job.status }}" = "success" ]; then
-            echo "### ✅ Integration Tests Passed (${{ matrix.dashboard.name }})" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### ❌ Integration Tests Failed (${{ matrix.dashboard.name }})" >> $GITHUB_STEP_SUMMARY
-            echo "Check container logs above for details." >> $GITHUB_STEP_SUMMARY
-          fi
-
       - name: Tear down
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.test.yml down -v
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+
+  integration-status:
+    name: Integration Tests
+    if: always()
+    needs: integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every dashboard variant to pass
+        run: test "${{ needs.integration.result }}" = success

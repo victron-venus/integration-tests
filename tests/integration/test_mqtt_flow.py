@@ -1,163 +1,44 @@
-#!/usr/bin/env python3
-"""
-Integration Tests for inverter-control → inverter-dashboard flow.
-
-Tests the complete MQTT message path:
-1. Control loop publishes to inverter/state
-2. Dashboard subscribes and exposes via WebSocket
-3. Verify state propagation and WebSocket updates.
-"""
+"""Exercise real MQTT roundtrips and the selected dashboard's WebSocket bridge."""
 
 import asyncio
 import json
+import os
 import time
-from typing import Any
 
 import pytest
 import websockets
 
-from tests.conftest import (
-    MqttClient,
-    TestConfig,
-    get_config,
-    is_dashboard_available,
-    is_mqtt_available,
-)
-
-pytestmark = pytest.mark.skipif(not is_mqtt_available(), reason="MQTT broker not available")
+from tests.conftest import MqttClient, TestConfig
 
 
-class WebSocketClient:
-    """WebSocket test client for dashboard."""
-
-    def __init__(self, url: str) -> None:
-        self.url = url
-        self.messages: list[dict[str, Any]] = []
-        self.connected = False
-
-    async def connect(self) -> None:
-        """Connect to WebSocket and receive messages."""
-        try:
-            async with websockets.connect(self.url) as ws:
-                self.connected = True
-                while True:
-                    msg = await ws.recv()
-                    self.messages.append(json.loads(msg))
-        except OSError:
-            self.connected = False
-            raise
-
-    def get_latest_state(self) -> dict[str, Any] | None:
-        """Get the latest state from WebSocket messages."""
-        for msg in reversed(self.messages):
-            if "gt" in msg or "battery_soc" in msg:
-                return msg
-        return None
+def test_mqtt_roundtrip(mqtt_client: MqttClient) -> None:
+    """Publish and receive an actual message through the broker."""
+    topic = "test/roundtrip"
+    payload = {"timestamp": time.time(), "test": "data"}
+    mqtt_client.subscribe(topic)
+    # Wait for the broker to accept the subscription before publishing.
+    time.sleep(0.2)
+    mqtt_client.publish(topic, json.dumps(payload))
+    assert mqtt_client.wait_for_message(topic) == payload
 
 
-@pytest.fixture
-def config() -> TestConfig:
-    """Provide test configuration fixture."""
-    return get_config()
-
-
-class TestMQTTStatePublished:
-    """Test that inverter-control publishes state to MQTT."""
-
-    def test_subscribes_to_sensor_topics(self) -> None:
-        """Control loop should subscribe to Home Assistant sensor topics."""
-        # This verifies the MQTT subscription works
-
-    def test_publishes_inverter_state(self, mqtt_client: MqttClient) -> None:  # noqa: W0621
-        """Control loop should publish to inverter/state."""
-        mqtt_client.subscribe("inverter/state")
-        time.sleep(2)
-
-        state_topics = [m["topic"] for m in mqtt_client.messages]
-        assert "inverter/state" in state_topics or len(state_topics) >= 0
-
-
-class TestDashboardReceivesState:
-    """Test that dashboard receives and exposes state."""
-
-    @pytest.mark.asyncio
-    @pytest.mark.skipif(not is_dashboard_available(), reason="Dashboard not available")
-    async def test_websocket_connection(self, config: TestConfig) -> None:  # noqa: W0621
-        """Dashboard WebSocket should accept connections and send initial state."""
-        # Do not use WebSocketClient.connect() here: that helper loops forever on
-        # recv(), so wait_for() always times out on a healthy keep-alive socket.
-        try:
-            async with websockets.connect(config.dashboard_url) as ws:
-                msg = await asyncio.wait_for(ws.recv(), timeout=5.0)
-                payload = json.loads(msg)
-                assert isinstance(payload, dict), (
-                    "initial WebSocket payload should be a JSON object"
-                )
-        except OSError as e:
-            if "Temporary failure in name resolution" in str(
-                e
-            ) or "Name or service not known" in str(e):
-                pytest.skip(f"Dashboard service not available: {config.dashboard_url}")
-            raise
-
-    @pytest.mark.asyncio
-    @pytest.mark.skipif(not is_dashboard_available(), reason="Dashboard not available")
-    async def test_receives_initial_state(self, config: TestConfig) -> None:  # noqa: W0621
-        """Dashboard should send initial state on connect."""
-        ws = WebSocketClient(config.dashboard_url)
-
-        try:
-            asyncio.create_task(ws.connect())
-            await asyncio.sleep(2)
-
-            initial_state = ws.get_latest_state()
-        except OSError:
-            pytest.skip("Dashboard not ready")
-
-        if initial_state:
-            assert "version" in initial_state or "gt" in initial_state, (
-                "Initial state should contain 'version' or 'gt' field"
-            )
-
-
-class TestControlLoopIntegration:
-    """Test end-to-end control loop behavior."""
-
-    def test_mqtt_roundtrip(self, mqtt_client: MqttClient) -> None:  # noqa: W0621
-        """Verify MQTT pub/sub roundtrip works."""
-        topic = "test/roundtrip"
-        payload = json.dumps({"test": "data", "timestamp": time.time()})
-
-        mqtt_client.subscribe(topic)
-        mqtt_client.publish(topic, payload)
-
-        result: dict[str, Any] | None = None
-        for _ in range(20):
-            for msg in mqtt_client.messages:
-                if msg["topic"] == topic:
-                    result = json.loads(msg["payload"])
-                    break
-            if result:
-                break
-            time.sleep(0.1)
-
-        assert result is not None, "MQTT roundtrip failed"
-        assert result["test"] == "data"
-
-    def test_state_json_format(self, mqtt_client: MqttClient) -> None:  # noqa: W0621
-        """Verify inverter/state has expected format."""
-        mqtt_client.subscribe("inverter/state")
-        time.sleep(2)
-
-        state_topic: dict[str, Any] | None = None
-        for msg in mqtt_client.messages:
-            if msg["topic"] == "inverter/state":
-                state_topic = msg
-                break
-
-        if state_topic:
-            data = json.loads(state_topic["payload"])
-
-            expected_fields = ["gt", "g1", "g2", "tt", "t1", "t2"]
-            for field in expected_fields:
-                assert field in data or field in str(data), f"Missing field: {field}"
+@pytest.mark.skipif(os.getenv("REQUIRE_DASHBOARD") != "1", reason="Dashboard profile not selected")
+@pytest.mark.asyncio
+async def test_dashboard_receives_mqtt_state(config: TestConfig, mqtt_client: MqttClient) -> None:
+    """Require the selected dashboard to forward MQTT state to its WebSocket."""
+    expected = {"gt": 2345, "g1": 1234, "g2": 1111, "tt": 3000, "t1": 1500, "t2": 1500}
+    async with websockets.connect(config.dashboard_url, open_timeout=5) as ws:
+        initial = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+        assert isinstance(initial, dict)
+        deadline = asyncio.get_running_loop().time() + 10
+        while asyncio.get_running_loop().time() < deadline:
+            mqtt_client.publish("inverter/state", json.dumps(expected))
+            try:
+                payload = json.loads(await asyncio.wait_for(ws.recv(), timeout=1))
+            except TimeoutError:
+                continue
+            state = payload.get("data", payload)
+            if state.get("gt") == expected["gt"]:
+                assert all(state.get(key) == value for key, value in expected.items())
+                return
+        pytest.fail("Dashboard never forwarded the published inverter/state payload")

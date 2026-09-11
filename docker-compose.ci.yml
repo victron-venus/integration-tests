@@ -1,0 +1,16 @@
+services:
+  dashboard:
+    image: dashboard-under-test:ci
+    environment:
+      MQTT_HOST: mqtt-broker
+      MQTT_PORT: "1883"
+      WEB_PORT: "8080"
+    depends_on:
+      - mqtt-broker
+  test-runner:
+    environment:
+      DASHBOARD_URL: ws://dashboard:8080/ws
+      REQUIRE_DASHBOARD: "1"
+      CI_REQUIRE_SERVICES: "1"
+    volumes:
+      - ./reports:/reports

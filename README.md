@@ -131,3 +131,19 @@ c.subscribe('inverter/#')
 c.loop_forever()
 "
 ```
+
+
+## CI dashboard coverage
+
+The integration workflow builds Python and Go dashboards from the immutable source
+revisions listed in its flat matrix. Missing builds, unavailable services and missing
+WebSocket state propagation fail the job. Reports are written to a host-mounted
+`reports/` directory and uploaded even after failures.
+
+The controller has no dashboard WebSocket endpoint, so it is not a dashboard matrix
+entry. These tests simulate its `inverter/state` output and verify real broker-to-dashboard
+propagation; they do not claim to run the hardware control loop. Controller behavior is
+covered by the inverter-control repository's hardware-free unit tests.
+
+Run the mock-only profile as before, or use `docker-compose.ci.yml` with a locally built
+`dashboard-under-test:ci` image to require dashboard readiness and message propagation.
