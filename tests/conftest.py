@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import time
+from collections import abc
 from dataclasses import dataclass
 from typing import Any
 
@@ -143,12 +144,27 @@ def config() -> TestConfig:
 
 
 @pytest.fixture
-def mqtt_client(config: TestConfig) -> MqttClient:
+def mqtt_client(config: TestConfig) -> abc.Iterator[MqttClient]:
     """Provide MQTT client fixture."""
     if not is_mqtt_available():
+        if os.getenv("CI_REQUIRE_SERVICES") == "1":
+            pytest.fail("Required MQTT broker is unavailable")
         pytest.skip("MQTT broker not available")
     client = MqttClient(config.mqtt_host, config.mqtt_port)
-    if not client.connect():
-        pytest.skip("Failed to connect to MQTT broker")
-    yield client
-    client.disconnect()
+    try:
+        if not client.connect():
+            if os.getenv("CI_REQUIRE_SERVICES") == "1":
+                pytest.fail("Failed to connect to required MQTT broker")
+            pytest.skip("Failed to connect to MQTT broker")
+        yield client
+    finally:
+        client.disconnect()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def require_ci_services() -> None:
+    """Missing CI services are failures, never successful skipped test runs."""
+    if os.getenv("CI_REQUIRE_SERVICES") == "1":
+        assert is_mqtt_available(), "Required MQTT broker is unavailable"
+        if os.getenv("REQUIRE_DASHBOARD") == "1":
+            assert is_dashboard_available(), "Required dashboard is unavailable"
