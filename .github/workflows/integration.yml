@@ -9,6 +9,11 @@ on:
     - cron: '0 4 * * *'
   workflow_dispatch:
   workflow_call:
+    inputs:
+      test-suite-ref:
+        description: Integration suite revision to check out when called from another repository
+        type: string
+        default: main
 
 permissions:
   contents: read
@@ -37,6 +42,10 @@ jobs:
           egress-policy: audit
       - name: Checkout integration tests
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: victron-venus/integration-tests
+          ref: ${{ inputs.test-suite-ref || github.sha }}
+          persist-credentials: false
       - name: Checkout pinned dashboard source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
