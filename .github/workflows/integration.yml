@@ -28,7 +28,7 @@ jobs:
             dockerfile: dashboard-python.test.dockerfile
           - name: go
             repository: victron-venus/inverter-dashboard-go
-            ref: a8efdabd0646fd688e48cef9b5fbcc1263c1df9d
+            ref: 2976d7fdcc15cd23d4fb90f97723c26d6cdfd2a3
             dockerfile: sources/dashboard/Dockerfile
     steps:
       - name: Harden the runner
@@ -49,8 +49,8 @@ jobs:
       - name: Start test stack
         run: |
           mkdir -p reports
-          sudo chown 1000:"$(id -g)" reports
           chmod 775 reports
+          sudo chown 1000:"$(id -g)" reports
           docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build mqtt-broker mock-dbus mock-battery mock-pv dashboard
           docker compose -f docker-compose.yml -f docker-compose.ci.yml build test-runner
       - name: Wait for MQTT and dashboard readiness
