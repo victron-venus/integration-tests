@@ -33,7 +33,7 @@ jobs:
             dockerfile: dashboard-python.test.dockerfile
           - name: go
             repository: victron-venus/inverter-dashboard-go
-            ref: 2976d7fdcc15cd23d4fb90f97723c26d6cdfd2a3
+            ref: e79fd89fe63683bb1aedb55b047ba96802771adf
             dockerfile: sources/dashboard/Dockerfile
     steps:
       - name: Harden the runner

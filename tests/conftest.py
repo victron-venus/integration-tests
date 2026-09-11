@@ -147,11 +147,15 @@ def config() -> TestConfig:
 def mqtt_client(config: TestConfig) -> abc.Iterator[MqttClient]:
     """Provide MQTT client fixture."""
     if not is_mqtt_available():
+        if os.getenv("CI_REQUIRE_SERVICES") == "1":
+            pytest.fail("Required MQTT broker is unavailable")
         pytest.skip("MQTT broker not available")
     client = MqttClient(config.mqtt_host, config.mqtt_port)
-    if not client.connect():
-        pytest.skip("Failed to connect to MQTT broker")
     try:
+        if not client.connect():
+            if os.getenv("CI_REQUIRE_SERVICES") == "1":
+                pytest.fail("Failed to connect to required MQTT broker")
+            pytest.skip("Failed to connect to MQTT broker")
         yield client
     finally:
         client.disconnect()
