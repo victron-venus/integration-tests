@@ -16,9 +16,12 @@ variants = {
     "python": ("victron-venus/inverter-dashboard", "ccde631cade6d381b87614cb21c464c7ad024cd4"),
     "go": ("victron-venus/inverter-dashboard-go", "e79fd89fe63683bb1aedb55b047ba96802771adf"),
 }
-selected = sys.argv[1:] or list(variants)
-if any(name not in variants for name in selected):
+requested = set(sys.argv[1:])
+if not requested.issubset(variants):
     raise SystemExit("Choose python or go")
+# Only literal, reviewed variant names flow into image/project/command arguments.
+# CLI values select entries; they are never forwarded to subprocess commands.
+selected = [name for name in ("python", "go") if not requested or name in requested]
 subprocess.run(["docker", "info"], check=True, stdout=subprocess.DEVNULL)
 for name in selected:
     with tempfile.TemporaryDirectory(prefix=f"integration-{name}-") as temporary:
