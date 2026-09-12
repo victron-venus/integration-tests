@@ -16,6 +16,12 @@ Optional services (uncomment in `docker-compose.yml` when Dockerfiles exist):
 - inverter-control
 - inverter-dashboard-go
 
+<!-- ci-release-process:start -->
+## CI and deployment
+
+See [CI and deployment workflow](docs/release-workflow.md) for required checks and local commands. This repository uses validation-only policy; application release channels do not apply.
+<!-- ci-release-process:end -->
+
 ## Architecture
 
 ```mermaid
