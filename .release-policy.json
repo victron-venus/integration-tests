@@ -1,0 +1,18 @@
+{
+  "repository": "victron-venus/integration-tests",
+  "mode": "validation-only",
+  "default_branch": "main",
+  "validation_workflows": [
+    "validate.yml",
+    "integration.yml",
+    "codeql.yml"
+  ],
+  "local_checks": [
+    "bash scripts/ci.sh"
+  ],
+  "notes": [
+    "Validation-only policy: no synthetic beta/RC artifacts or tag-triggered stable releases.",
+    "Docker matrix tests pinned Python/Go dashboards with mocks; no guarantee for every current consumer commit or real hardware.",
+    "Dependency review remains a PR-only comparison; callable full-source validation workflows run for nightly and candidate checks."
+  ]
+}
