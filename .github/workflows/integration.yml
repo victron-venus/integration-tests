@@ -13,7 +13,7 @@ on:
       test-suite-ref:
         description: Integration suite revision to check out when called from another repository
         type: string
-        default: main
+        default: ''
 
 permissions:
   contents: read
@@ -26,15 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: python
-            repository: victron-venus/inverter-dashboard
-            ref: ccde631cade6d381b87614cb21c464c7ad024cd4
-            dockerfile: dashboard-python.test.dockerfile
-          - name: go
-            repository: victron-venus/inverter-dashboard-go
-            ref: e79fd89fe63683bb1aedb55b047ba96802771adf
-            dockerfile: sources/dashboard/Dockerfile
+        name: [python, go]
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1
@@ -44,36 +36,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: victron-venus/integration-tests
-          ref: ${{ inputs.test-suite-ref || github.sha }}
+          ref: ${{ inputs.test-suite-ref || (github.repository == 'victron-venus/integration-tests' && github.sha || 'main') }}
           persist-credentials: false
-      - name: Checkout pinned dashboard source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: ${{ matrix.repository }}
-          ref: ${{ matrix.ref }}
-          path: sources/dashboard
-          persist-credentials: false
-      - name: Build selected dashboard
-        run: docker build -f "${{ matrix.dockerfile }}" -t dashboard-under-test:ci sources/dashboard
-      - name: Start test stack
-        run: |
-          mkdir -p reports
-          chmod 775 reports
-          sudo chown 1000:"$(id -g)" reports
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build mqtt-broker mock-dbus mock-battery mock-pv dashboard
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml build test-runner
-      - name: Wait for MQTT and dashboard readiness
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm test-runner python tests/wait_ready.py
-      - name: Run integration tests
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml run --rm test-runner \
-            python -m pytest tests/integration/ -v --tb=short \
-            --html=/reports/report.html --self-contained-html --junitxml=/reports/junit.xml
-      - name: Collect logs
-        if: always()
-        run: |
-          mkdir -p reports
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color > reports/containers.log
+      - name: Install pinned syntax parser
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Run the same isolated integration suite locally and in CI
+        env:
+          VARIANT: ${{ matrix.name }}
+        run: bash scripts/ci.sh "$VARIANT"
       - name: Upload test reports and logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -81,9 +51,6 @@ jobs:
           name: integration-${{ matrix.name }}
           path: reports/
           retention-days: 7
-      - name: Tear down
-        if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
 
   integration-status:
     name: Integration Tests
