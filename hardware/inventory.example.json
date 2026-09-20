@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "device_id": "cerbo-lab-example",
+  "enabled": false,
+  "ssh_target": "root@cerbo-lab.example.invalid",
+  "python": "/usr/bin/python3",
+  "controller_root": "/data/inverter-control",
+  "controller_version": "REVIEW_INSTALLED_VERSION",
+  "native_client_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "venus_firmware": "REVIEW_EXACT_FIRMWARE",
+  "identity": [
+    {
+      "role": "target_product",
+      "service": "com.victronenergy.vebus.lab",
+      "path": "/ProductName",
+      "expected": "REVIEW_EXACT_DBUS_STRING"
+    },
+    {
+      "role": "target_firmware",
+      "service": "com.victronenergy.vebus.lab",
+      "path": "/FirmwareVersion",
+      "expected": "REVIEW_EXACT_DBUS_STRING"
+    },
+    {
+      "role": "bms_product",
+      "service": "com.victronenergy.battery.lab",
+      "path": "/ProductName",
+      "expected": "REVIEW_EXACT_DBUS_STRING"
+    },
+    {
+      "role": "bms_firmware",
+      "service": "com.victronenergy.battery.lab",
+      "path": "/FirmwareVersion",
+      "expected": "REVIEW_EXACT_DBUS_STRING"
+    },
+    {
+      "role": "meter_product",
+      "service": "com.victronenergy.grid.lab",
+      "path": "/ProductName",
+      "expected": "REVIEW_EXACT_DBUS_STRING"
+    }
+  ],
+  "meter_service": "/service/lab-meter",
+  "allow_meter_loss": false,
+  "cleanup_allow": [],
+  "duration_seconds": 3600,
+  "reconnect_count": 20,
+  "limits": {
+    "cycle_p95_ms": 330,
+    "cycle_p99_ms": 500,
+    "write_p95_ms": 100,
+    "write_p99_ms": 250,
+    "rss_drift_mb": 10,
+    "sample_gap_seconds": 15,
+    "probe_deadline_seconds": 10,
+    "accepted_zero_seconds": 15
+  }
+}

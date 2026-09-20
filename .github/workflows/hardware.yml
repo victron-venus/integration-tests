@@ -1,0 +1,50 @@
+name: Opt-in Cerbo qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Exact approved inventory device ID
+        required: true
+        type: string
+      execute:
+        description: Run the approved lab meter-loss scenario (otherwise offline dry-run)
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cerbo-hardware-lab
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, cerbo-lab]
+    environment: hardware-lab
+    timeout-minutes: 375
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Run reviewed inventory from the dedicated lab runner
+        env:
+          DEVICE_ID: ${{ inputs.device }}
+          EXECUTE: ${{ inputs.execute }}
+        run: |
+          case "$DEVICE_ID" in ''|*[!a-zA-Z0-9_-]*) exit 2 ;; esac
+          args=(--inventory "/etc/victron-lab/$DEVICE_ID.json" --output "reports/hardware-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT")
+          if [ "$EXECUTE" = true ]; then
+            args+=(--execute --ack-device "$DEVICE_ID")
+          fi
+          python3 hardware/device_runner.py "${args[@]}"
+      - name: Preserve evidence even when qualification fails
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hardware-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/hardware-*/
+          if-no-files-found: error
+          retention-days: 90

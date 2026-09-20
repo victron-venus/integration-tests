@@ -19,6 +19,19 @@ permissions:
   contents: read
 
 jobs:
+  hardware-runner-contracts:
+    name: Hardware runner safety contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: victron-venus/integration-tests
+          ref: ${{ inputs.test-suite-ref || (github.repository == 'victron-venus/integration-tests' && github.sha || 'main') }}
+          persist-credentials: false
+      - run: |
+          python3 -m pip install --only-binary=:all: pytest==9.1.1 jsonschema==4.25.1
+      - run: python3 -m pytest hardware/ contracts/ -q
+
   integration:
     name: Integration Tests (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -39,7 +52,8 @@ jobs:
           ref: ${{ inputs.test-suite-ref || (github.repository == 'victron-venus/integration-tests' && github.sha || 'main') }}
           persist-credentials: false
       - name: Install pinned syntax parser
-        run: python3 -m pip install PyYAML==6.0.3
+        run: |
+          python3 -m pip install --only-binary=:all: PyYAML==6.0.3
       - name: Run the same isolated integration suite locally and in CI
         env:
           VARIANT: ${{ matrix.name }}
@@ -55,8 +69,10 @@ jobs:
   integration-status:
     name: Integration Tests
     if: always()
-    needs: integration
+    needs: [integration, hardware-runner-contracts]
     runs-on: ubuntu-latest
     steps:
       - name: Require every dashboard variant to pass
-        run: test "${{ needs.integration.result }}" = success
+        run: |
+          test "${{ needs.integration.result }}" = success
+          test "${{ needs.hardware-runner-contracts.result }}" = success
