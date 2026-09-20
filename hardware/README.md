@@ -32,7 +32,7 @@ meter with `GRID_EXPECTED_SERVICE` and the site's phases, and configure/review
 `GRID_LOSS_HOLD_SECONDS` before the run. Defaults can exceed the example 15-second
 zero deadline; the runner does not change controller policy to make tests pass.
 
-Evidence includes identity preflight, non-retained controller state, rolling
+Evidence includes identity preflight, non-retained controller state sampled at 1 Hz, rolling
 cycle/write p95/p99, RSS drift between the first/last 10% of samples, reconnect
 durations, the meter stop, accepted-zero observation, recovery and cleanup.
 Percentiles are the **maximum observed rolling-window percentiles**, not a

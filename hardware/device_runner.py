@@ -347,6 +347,7 @@ def run_device(config, preflight_only=False):
         broker.loop_start()
         started = time.monotonic()
         first = None
+        last_sample = float("-inf")
         fault_time = None
         restored = False
         worker = None
@@ -362,6 +363,21 @@ def run_device(config, preflight_only=False):
                 ) from error
             if time.monotonic() - received > config["limits"]["sample_gap_seconds"]:
                 raise TimeoutError("State queue is stale")
+            if received - last_sample < 1:
+                continue
+            last_sample = received
+            # Bound the observer's own CPU/RSS: retain only gate evidence, at 1 Hz.
+            state = {
+                key: state.get(key)
+                for key in (
+                    "uptime",
+                    "dry_run",
+                    "grid_control_valid",
+                    "grid_loss_zero_applied",
+                    "grid_loss_state",
+                    "perf",
+                )
+            }
             if first is None:
                 if state.get("dry_run") is not False or state.get("grid_control_valid") is not True:
                     raise ValueError(
@@ -512,6 +528,9 @@ def main(argv=None):
             }
         else:
             result = evaluate(config, events)
+            if code:
+                result["passed"] = False
+                result["errors"].append("SSH/device process failed")
             if not result["passed"]:
                 code = 1
     except (ValueError, KeyError, TypeError) as error:
