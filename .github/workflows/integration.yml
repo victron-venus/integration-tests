@@ -19,6 +19,18 @@ permissions:
   contents: read
 
 jobs:
+  hardware-runner-contracts:
+    name: Hardware runner safety contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: victron-venus/integration-tests
+          ref: ${{ inputs.test-suite-ref || (github.repository == 'victron-venus/integration-tests' && github.sha || 'main') }}
+          persist-credentials: false
+      - run: python3 -m pip install pytest==9.1.1
+      - run: python3 -m pytest hardware/ -q
+
   integration:
     name: Integration Tests (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -55,8 +67,10 @@ jobs:
   integration-status:
     name: Integration Tests
     if: always()
-    needs: integration
+    needs: [integration, hardware-runner-contracts]
     runs-on: ubuntu-latest
     steps:
       - name: Require every dashboard variant to pass
-        run: test "${{ needs.integration.result }}" = success
+        run: |
+          test "${{ needs.integration.result }}" = success
+          test "${{ needs.hardware-runner-contracts.result }}" = success
