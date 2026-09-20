@@ -7,7 +7,6 @@ import json
 import math
 import queue
 import re
-import shlex
 import signal
 import statistics
 import subprocess
@@ -63,6 +62,13 @@ def validate_inventory(config, execute=False):
         raise ValueError("Only the dedicated lab meter service may be faulted")
     if type(config["enabled"]) is not bool or type(config["allow_meter_loss"]) is not bool:
         raise ValueError("Authorization flags must be booleans")
+    if (
+        config["controller_root"] != "/data/inverter-control"
+        or config["python"] != "/usr/bin/python3"
+    ):
+        raise ValueError(
+            "Only the reviewed /data/inverter-control installation and /usr/bin/python3 are supported"
+        )
     for key in ("controller_version", "venus_firmware"):
         if not isinstance(config[key], str) or not config[key].strip():
             raise ValueError(f"Missing exact identity: {key}")
@@ -219,17 +225,27 @@ def evaluate(config, events):
     return result
 
 
+def checked_service(path):
+    """Reject option injection and paths outside the dedicated service namespace."""
+    if not isinstance(path, str) or re.fullmatch(r"/service/[a-zA-Z0-9_-]+", path) is None:
+        raise ValueError("Invalid meter service")
+    if path in {"/service/inverter-control", "/service/dbus", "/service/flashmq"}:
+        raise ValueError("Shared infrastructure cannot be faulted")
+    return path
+
+
 def service_running(path):
     """Require an existing supervised service; never infer ownership from a PID alone."""
+    path = checked_service(path)
     result = subprocess.run(["svstat", path], check=True, capture_output=True, text=True, timeout=5)
-    return re.search(r": up \(pid [0-9]+\)", result.stdout) is not None
+    return re.search(r": up \(pid \d+\)", result.stdout) is not None
 
 
 def restore_meter(config, attempted):
     """No broad cleanup: only undo this process's authorized, journaled stop."""
     if not attempted or config["cleanup_allow"] != ["restore_meter_service"]:
         return False
-    subprocess.run(["svc", "-u", config["meter_service"]], check=True, timeout=5)
+    subprocess.run(["svc", "-u", checked_service(config["meter_service"])], check=True, timeout=5)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         if service_running(config["meter_service"]):
@@ -256,7 +272,7 @@ def run_device(config, preflight_only=False):
 
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)
-    root = Path(config["controller_root"])
+    root = Path("/data/inverter-control")
     if (root / "version").read_text().strip() != config["controller_version"]:
         raise ValueError("Controller version mismatch")
     if (
@@ -334,7 +350,8 @@ def run_device(config, preflight_only=False):
         fault_time = None
         restored = False
         worker = None
-        while first is None or time.monotonic() - first <= config["duration_seconds"] + 1:
+        duration = min(21600, max(3600, int(config["duration_seconds"])))
+        while first is None or time.monotonic() - first <= duration + 1:
             if stop.is_set():
                 raise RuntimeError("Reconnect or evidence collector failed")
             try:
@@ -363,7 +380,9 @@ def run_device(config, preflight_only=False):
                 # Journal before the command: even an uncertain subprocess result requires restoration.
                 attempted = True
                 fault_time = emit("meter_down", service=config["meter_service"])["t"]
-                subprocess.run(["svc", "-d", config["meter_service"]], check=True, timeout=5)
+                subprocess.run(
+                    ["svc", "-d", checked_service(config["meter_service"])], check=True, timeout=5
+                )
             if fault_time is not None and not restored:
                 accepted = (
                     state.get("grid_control_valid") is False
@@ -412,26 +431,45 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.agent:
         return run_device(json.load(sys.stdin), args.preflight)
-    config = validate_inventory(json.loads(args.inventory.read_text()), execute=args.execute)
+    inventory = args.inventory.resolve(strict=True)
+    allowed_inventory = (Path.cwd() / "hardware").resolve()
+    if not inventory.is_relative_to(allowed_inventory) and not inventory.is_relative_to(
+        Path("/etc/victron-lab")
+    ):
+        raise ValueError("Inventory must be in hardware/ or /etc/victron-lab/")
+    config = validate_inventory(json.loads(inventory.read_text()), execute=args.execute)
     if args.execute and args.ack_device != config["device_id"]:
         raise ValueError("--ack-device must exactly match the inventory device")
-    args.output.mkdir(parents=True, exist_ok=False)
+    reports_root = (Path.cwd() / "reports").resolve()
+    output = args.output.resolve()
+    if output == reports_root or not output.is_relative_to(reports_root):
+        raise ValueError("Evidence output must be a new directory under reports/")
+    output.mkdir(parents=True, exist_ok=False)
     source = Path(__file__).read_text()
+    mode = "dry-run"
+    if args.execute:
+        mode = "preflight" if args.preflight else "execute"
     plan = {
-        "mode": "preflight" if args.preflight else "execute" if args.execute else "dry-run",
+        "mode": mode,
         "qualification": False,
         "inventory": config,
         "runner_sha256": hashlib.sha256(source.encode()).hexdigest(),
     }
-    (args.output / "plan.json").write_text(json.dumps(plan, indent=2) + "\n")
+    (output / "plan.json").write_text(json.dumps(plan, indent=2) + "\n")
     if not args.execute:
         print(
             "Dry-run only: inventory validated; no SSH or hardware access. No qualification result."
         )
         return 0
-    command = [config["python"], "-u", "-c", source, "--agent"]
-    if args.preflight:
-        command.append("--preflight")
+    target = config["ssh_target"]
+    if re.fullmatch(r"[a-zA-Z0-9_.-]+@[a-zA-Z0-9][a-zA-Z0-9.-]*", target) is None:
+        raise ValueError("Invalid SSH destination")
+    # The remote shell receives only a constant command. Source and JSON data
+    # travel on stdin; repr produces a Python string literal, not executable input.
+    program = source.rsplit('if __name__ == "__main__":', 1)[0]
+    program += (
+        f"\nraise SystemExit(run_device(json.loads({json.dumps(config)!r}), {args.preflight!r}))\n"
+    )
     ssh = [
         "ssh",
         "-o",
@@ -444,14 +482,14 @@ def main(argv=None):
         "ServerAliveInterval=10",
         "-o",
         "ServerAliveCountMax=3",
-        config["ssh_target"],
-        shlex.join(command),
+        target,
+        "/usr/bin/python3 -u -",
     ]
     code = 1
     try:
         process = subprocess.run(
             ssh,
-            input=json.dumps(config),
+            input=program,
             text=True,
             capture_output=True,
             timeout=config["duration_seconds"] + 300,
@@ -461,8 +499,8 @@ def main(argv=None):
     except subprocess.TimeoutExpired as error:
         stdout = (error.stdout or b"").decode()
         stderr = "Remote deadline exceeded; independently verify meter service restoration.\n"
-    (args.output / "events.jsonl").write_text(stdout)
-    (args.output / "stderr.log").write_text(stderr)
+    (output / "events.jsonl").write_text(stdout)
+    (output / "stderr.log").write_text(stderr)
     try:
         events = [json.loads(line) for line in stdout.splitlines()]
         if args.preflight:
@@ -479,13 +517,11 @@ def main(argv=None):
     except (ValueError, KeyError, TypeError) as error:
         result = {"passed": False, "error": type(error).__name__}
         code = 1
-    (args.output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     hashes = {
-        p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-        for p in args.output.iterdir()
-        if p.is_file()
+        p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in output.iterdir() if p.is_file()
     }
-    (args.output / "sha256.json").write_text(json.dumps(hashes, indent=2) + "\n")
+    (output / "sha256.json").write_text(json.dumps(hashes, indent=2) + "\n")
     return code
 
 

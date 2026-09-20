@@ -4,7 +4,7 @@ The Ubuntu Docker matrix does not qualify hardware. This runner is opt-in and
 has no enabled device inventory. Its default is an offline plan, never SSH.
 
 Run its negative gate tests with `python3 -m pytest hardware/`. Copy
-`inventory.example.json` outside the repository and review every identity and
+`inventory.example.json` to `/etc/victron-lab/` (or under `hardware/` for a local dry-run) and review every identity and
 threshold with the lab operator. The example numbers are initial gate targets,
 not established hardware performance. Use a dedicated lab meter service, not a
 production household installation. `svstat`, `svc`, Python 3.11+, paho-mqtt 2.x
@@ -23,7 +23,9 @@ python3 hardware/device_runner.py --inventory /etc/victron-lab/cerbo-lab.json --
 
 Execution additionally requires `enabled: true`, `allow_meter_loss: true`, and
 `cleanup_allow: ["restore_meter_service"]`. Host keys must already be installed;
-SSH never accepts an unknown key. No package installation or deployment occurs.
+SSH never accepts an unknown key. Inventory paths are confined to `hardware/` or `/etc/victron-lab/`; evidence stays
+under `reports/`. The reviewed installation is `/data/inverter-control` using
+`/usr/bin/python3`. No package installation or deployment occurs.
 The runner sends its reviewed Python source through SSH, records its hash, and
 requires the expected installed native-client source hash. Pin the external
 meter with `GRID_EXPECTED_SERVICE` and the site's phases, and configure/review

@@ -44,15 +44,17 @@ def evidence(inventory):
     return events
 
 
-def test_dry_run_never_opens_transport(inventory, tmp_path):
+def test_dry_run_never_opens_transport(inventory, tmp_path, monkeypatch):
     """Planning writes local evidence only and cannot accidentally establish SSH."""
-    source = tmp_path / "inventory.json"
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "hardware").mkdir()
+    source = tmp_path / "hardware/inventory.json"
     source.write_text(json.dumps(inventory))
     with patch(
         "hardware.device_runner.subprocess.run", side_effect=AssertionError("network access")
     ):
-        assert main(["--inventory", str(source), "--output", str(tmp_path / "report")]) == 0
-    assert json.loads((tmp_path / "report/plan.json").read_text())["qualification"] is False
+        assert main(["--inventory", str(source), "--output", str(tmp_path / "reports/report")]) == 0
+    assert json.loads((tmp_path / "reports/report/plan.json").read_text())["qualification"] is False
 
 
 @pytest.mark.parametrize(
@@ -150,11 +152,13 @@ def test_fail_closed_evidence(inventory, evidence, change):
     assert evaluate(inventory, evidence)["passed"] is False
 
 
-def test_unacknowledged_execute_never_connects(inventory, tmp_path):
+def test_unacknowledged_execute_never_connects(inventory, tmp_path, monkeypatch):
     """Device identity acknowledgement cannot be replaced by a generic yes."""
     config = copy.deepcopy(inventory)
     config.update(enabled=True, allow_meter_loss=True, cleanup_allow=["restore_meter_service"])
-    source = tmp_path / "inventory.json"
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "hardware").mkdir()
+    source = tmp_path / "hardware/inventory.json"
     source.write_text(json.dumps(config))
     with patch(
         "hardware.device_runner.subprocess.run", side_effect=AssertionError("network access")
