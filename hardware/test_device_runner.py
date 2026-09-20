@@ -2,12 +2,13 @@
 
 import copy
 import json
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from hardware.device_runner import evaluate, main, restore_meter, validate_inventory
+from hardware.device_runner import bounded_close, evaluate, main, restore_meter, validate_inventory
 
 
 @pytest.fixture
@@ -92,6 +93,20 @@ def test_cleanup_has_no_ambient_authority(inventory):
         assert restore_meter(inventory, True) is False
         inventory["cleanup_allow"] = ["restore_meter_service"]
         assert restore_meter(inventory, False) is False
+
+
+def test_wedged_probe_cleanup_is_bounded():
+    """A blocked native lock cannot prevent evidence/exit after meter restoration."""
+    released = threading.Event()
+
+    class WedgedClient:
+        def close(self):
+            released.wait(timeout=5)
+
+    try:
+        assert bounded_close(WedgedClient(), timeout=0.01) is False
+    finally:
+        released.set()
 
 
 def test_complete_gate_input(inventory, evidence):

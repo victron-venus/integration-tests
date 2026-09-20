@@ -254,6 +254,14 @@ def restore_meter(config, attempted):
     return False
 
 
+def bounded_close(client, timeout=2):
+    """A wedged probe lock must not wedge the observer's cleanup/evidence path."""
+    closer = threading.Thread(target=client.close, daemon=True)
+    closer.start()
+    closer.join(timeout=timeout)
+    return not closer.is_alive()
+
+
 def run_device(config, preflight_only=False):
     """Executed on the explicitly selected lab device, never on a PR runner."""
     validate_inventory(config, execute=True)
@@ -351,10 +359,15 @@ def run_device(config, preflight_only=False):
         fault_time = None
         restored = False
         worker = None
+        probe_deadline = (
+            started + config["reconnect_count"] * config["limits"]["probe_deadline_seconds"] + 5
+        )
         duration = min(21600, max(3600, int(config["duration_seconds"])))
         while first is None or time.monotonic() - first <= duration + 1:
             if stop.is_set():
                 raise RuntimeError("Reconnect or evidence collector failed")
+            if worker is not None and worker.is_alive() and time.monotonic() > probe_deadline:
+                raise TimeoutError("Native probe made no bounded reconnect progress")
             try:
                 received, state = incoming.get(timeout=config["limits"]["sample_gap_seconds"])
             except queue.Empty as error:
@@ -429,7 +442,8 @@ def run_device(config, preflight_only=False):
                 emit("cleanup_error", error=type(error).__name__)
         broker.disconnect()
         broker.loop_stop()
-        client.close()
+        if not bounded_close(client):
+            emit("error", error="TimeoutError", message="Native client close wedged")
     result = evaluate(config, events)
     emit("result", **result)
     return 0 if result["passed"] else 1
