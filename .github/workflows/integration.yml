@@ -52,7 +52,8 @@ jobs:
           ref: ${{ inputs.test-suite-ref || (github.repository == 'victron-venus/integration-tests' && github.sha || 'main') }}
           persist-credentials: false
       - name: Install pinned syntax parser
-        run: python3 -m pip install --only-binary=:all: PyYAML==6.0.3
+        run: |
+          python3 -m pip install --only-binary=:all: PyYAML==6.0.3
       - name: Run the same isolated integration suite locally and in CI
         env:
           VARIANT: ${{ matrix.name }}
