@@ -28,8 +28,8 @@ jobs:
           repository: victron-venus/integration-tests
           ref: ${{ inputs.test-suite-ref || (github.repository == 'victron-venus/integration-tests' && github.sha || 'main') }}
           persist-credentials: false
-      - run: python3 -m pip install pytest==9.1.1
-      - run: python3 -m pytest hardware/ -q
+      - run: python3 -m pip install pytest==9.1.1 jsonschema==4.25.1
+      - run: python3 -m pytest hardware/ contracts/ -q
 
   integration:
     name: Integration Tests (${{ matrix.name }})
