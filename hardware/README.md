@@ -60,7 +60,14 @@ SIGKILL or lost SSH can prevent confirmed cleanup: independently check the meter
 service before resuming operation. This is why the scenario requires an attended
 lab and has no scheduled or pull-request trigger.
 
-For Actions, provision a dedicated `cerbo-lab` self-hosted runner, inventory at
+For Actions, dispatch `hardware.yml` with `execute=false` to produce an offline
+plan on a GitHub-hosted runner using only the disabled example inventory. It
+needs no lab runner, SSH credentials or environment approval. Its artifact is
+explicitly named `offline-plan-not-hardware-qualification-*` and its plan records
+`qualification: false`. The device input is used only when executing against the
+reviewed lab inventory; dry-run never consumes external runner inventory.
+
+For actual execution, provision a dedicated `cerbo-lab` self-hosted runner, inventory at
 `/etc/victron-lab/<device>.json`, pinned known_hosts and the `hardware-lab`
 environment with required reviewers. The workflow only runs manually from main,
 serializes device access and always uploads evidence. Organization runner and
