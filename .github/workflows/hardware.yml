@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       device:
-        description: Exact approved inventory device ID
+        description: Approved inventory device ID for execute; offline uses the disabled example
         required: true
+        default: cerbo-lab-example
         type: string
       execute:
         description: Run the approved lab meter-loss scenario (otherwise offline dry-run)
@@ -20,8 +21,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    name: Offline plan (not hardware qualification)
+    if: github.ref == 'refs/heads/main' && !inputs.execute
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12.13'
+      - name: Plan the disabled example without device access
+        run: |
+          python3 hardware/device_runner.py --inventory hardware/inventory.example.json --output "reports/offline-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Preserve offline plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: offline-plan-not-hardware-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: reports/offline-*/
+          if-no-files-found: error
+          retention-days: 30
   qualify:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.execute
     runs-on: [self-hosted, linux, cerbo-lab]
     environment: hardware-lab
     timeout-minutes: 375
