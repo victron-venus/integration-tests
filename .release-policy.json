@@ -5,7 +5,8 @@
   "validation_workflows": [
     "validate.yml",
     "integration.yml",
-    "codeql.yml"
+    "codeql.yml",
+    "dependency-review.yml"
   ],
   "local_checks": [
     "bash scripts/ci.sh"
@@ -15,5 +16,6 @@
     "Docker matrix tests pinned Python/Go dashboards with mocks; no guarantee for every current consumer commit or real hardware.",
     "Dependency review remains a PR-only comparison; callable full-source validation workflows run for nightly and candidate checks."
   ],
-  "visibility": "public"
+  "visibility": "public",
+  "single_entry_ci": true
 }
