@@ -1,12 +1,6 @@
 name: Integration Tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  schedule:
-    - cron: '0 4 * * *'
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -32,6 +26,7 @@ jobs:
           python3 -m pip install --only-binary=:all: pytest==9.1.1 jsonschema==4.25.1
       - run: python3 -m pytest hardware/ contracts/ -q
 
+    timeout-minutes: 30
   integration:
     name: Integration Tests (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -76,3 +71,4 @@ jobs:
         run: |
           test "${{ needs.integration.result }}" = success
           test "${{ needs.hardware-runner-contracts.result }}" = success
+    timeout-minutes: 30
