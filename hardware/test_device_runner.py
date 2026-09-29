@@ -20,7 +20,20 @@ def inventory():
 @pytest.fixture
 def evidence(inventory):
     """Known-good gate input, visibly synthetic and never published as hardware proof."""
-    events = [{"kind": "preflight", "ok": True, "t": 0}]
+    events = [
+        {
+            "kind": "preflight",
+            "ok": True,
+            "t": 0,
+            "identity": [
+                {**probe, "observed": probe["expected"]} for probe in inventory["identity"]
+            ],
+            **{
+                field: inventory[field]
+                for field in ("controller_version", "native_client_sha256", "venus_firmware")
+            },
+        }
+    ]
     for number in range(361):
         elapsed = number * 10
         outage = 1800 <= elapsed < 1820
@@ -180,3 +193,53 @@ def test_unacknowledged_execute_never_connects(inventory, tmp_path, monkeypatch)
     ):
         with pytest.raises(ValueError, match="ack-device"):
             main(["--inventory", str(source), "--execute", "--ack-device", "yes"])
+
+
+@pytest.mark.parametrize(
+    "kind", ["sample", "preflight", "reconnect", "meter_down", "meter_restored"]
+)
+@pytest.mark.parametrize("timestamp", [float("nan"), float("inf"), -1, True, "12", None])
+def test_invalid_event_clock_cannot_qualify(inventory, evidence, kind, timestamp):
+    """Every measured interval must use a finite nonnegative monotonic timestamp."""
+    next(event for event in evidence if event["kind"] == kind)["t"] = timestamp
+    result = evaluate(inventory, evidence)
+    assert result["passed"] is False
+    json.dumps(result, allow_nan=False)
+
+
+@pytest.mark.parametrize(
+    "field", ["identity", "controller_version", "native_client_sha256", "venus_firmware"]
+)
+def test_preflight_must_match_inventory(inventory, evidence, field):
+    """An ok flag from different hardware/source cannot qualify this inventory."""
+    preflight = next(event for event in evidence if event["kind"] == "preflight")
+    preflight[field] = [] if field == "identity" else "different-installation"
+    assert evaluate(inventory, evidence)["passed"] is False
+
+
+@pytest.mark.parametrize("change", ["duplicate", "after_samples", "wrong_observation"])
+def test_preflight_is_unique_and_precedes_measured_samples(inventory, evidence, change):
+    """The gate binds samples to one complete successful identity preflight."""
+    preflight = next(event for event in evidence if event["kind"] == "preflight")
+    if change == "duplicate":
+        evidence.append(copy.deepcopy(preflight))
+    elif change == "after_samples":
+        preflight["t"] = 1
+    else:
+        preflight["identity"][0]["observed"] = "wrong-device"
+    assert evaluate(inventory, evidence)["passed"] is False
+
+
+@pytest.mark.parametrize("field,value", [("state", None), ("perf", []), ("cycle_ms", None)])
+def test_malformed_sample_returns_serializable_failure(inventory, evidence, field, value):
+    """Truncated/corrupt evidence still produces a report instead of crashing."""
+    sample = next(event for event in evidence if event["kind"] == "sample")
+    if field == "state":
+        sample[field] = value
+    elif field == "perf":
+        sample["state"][field] = value
+    else:
+        sample["state"]["perf"][field] = value
+    result = evaluate(inventory, evidence)
+    assert result["passed"] is False
+    json.dumps(result, allow_nan=False)

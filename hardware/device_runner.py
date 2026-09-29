@@ -122,7 +122,6 @@ def validate_inventory(config, execute=False):
 def evaluate(config, events):
     """Reject incomplete/stale evidence; percentiles are maxima of rolling windows."""
     errors = []
-    samples = [e for e in events if e["kind"] == "sample"]
     limits = config["limits"]
     result = {
         "schema_version": 1,
@@ -131,6 +130,19 @@ def evaluate(config, events):
         "metric_scope": "maximum observed rolling-window percentile",
         "errors": errors,
     }
+    if not isinstance(events, list) or any(
+        not isinstance(event, dict)
+        or not isinstance(event.get("kind"), str)
+        or not finite(event.get("t"))
+        or event["t"] < 0
+        for event in events
+    ):
+        errors.append("invalid event or nonfinite/negative monotonic timestamp")
+        return result
+    samples = [event for event in events if event["kind"] == "sample"]
+    if any(not isinstance(sample.get("state"), dict) for sample in samples):
+        errors.append("invalid controller state evidence")
+        return result
     if len(samples) < 100:
         errors.append("insufficient fresh samples")
         return result
@@ -155,6 +167,15 @@ def evaluate(config, events):
     if any(s.get("dry_run") is not False for s in states):
         errors.append("controller dry-run/missing execution identity")
     metrics = [s.get("perf", {}) for s in states]
+    if any(
+        not isinstance(metric, dict)
+        or any(
+            not isinstance(metric.get(section, {}), dict) for section in ("cycle_ms", "setvalue_ms")
+        )
+        for metric in metrics
+    ):
+        errors.append("invalid performance evidence")
+        return result
     for section, pct, limit in (
         ("cycle_ms", "p95", "cycle_p95_ms"),
         ("cycle_ms", "p99", "cycle_p99_ms"),
@@ -217,8 +238,19 @@ def evaluate(config, events):
             for s in samples
         ):
             errors.append("meter did not recover after cleanup")
-    if not any(e["kind"] == "preflight" and e.get("ok") is True for e in events):
-        errors.append("identity preflight evidence missing")
+    preflights = [event for event in events if event["kind"] == "preflight"]
+    expected_identity = [{**probe, "observed": probe["expected"]} for probe in config["identity"]]
+    if (
+        len(preflights) != 1
+        or preflights[0].get("ok") is not True
+        or preflights[0].get("identity") != expected_identity
+        or any(
+            preflights[0].get(field) != config[field]
+            for field in ("controller_version", "native_client_sha256", "venus_firmware")
+        )
+        or preflights[0]["t"] > times[0]
+    ):
+        errors.append("identity preflight evidence missing or mismatched to inventory")
     if any(e["kind"] == "error" for e in events):
         errors.append("runner error")
     result["passed"] = not errors

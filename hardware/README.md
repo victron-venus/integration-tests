@@ -38,7 +38,11 @@ durations, the meter stop, accepted-zero observation, recovery and cleanup.
 Percentiles are the **maximum observed rolling-window percentiles**, not a
 fabricated percentile of the whole run. A minimum one-hour soak, positive
 thresholds, monotonically advancing controller uptime, bounded message gaps,
-and at least 100 fresh samples are required. Update inverter-control to emit
+and at least 100 fresh samples are required. Every event needs a finite,
+nonnegative monotonic timestamp. Exactly one successful identity preflight must
+precede the samples and match the reviewed inventory, observed device values,
+controller version, firmware and native-client source hash. Malformed evidence
+fails the gate and remains a serializable failure report. Update inverter-control to emit
 `setvalue_ms.p99`. Lack of that metric fails qualification.
 
 The reconnect storm disconnects **only a separate read-only NativeDbusClient
