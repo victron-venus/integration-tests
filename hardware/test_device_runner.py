@@ -1,10 +1,13 @@
 """Negative qualification tests: synthetic evidence can test the gate, not qualify a device."""
 
 import copy
+import hashlib
 import json
+import sys
 import threading
 from pathlib import Path
-from unittest.mock import patch
+from types import ModuleType
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -243,3 +246,67 @@ def test_malformed_sample_returns_serializable_failure(inventory, evidence, fiel
     result = evaluate(inventory, evidence)
     assert result["passed"] is False
     json.dumps(result, allow_nan=False)
+
+
+def test_preflight_producer_matches_gate_contract(
+    inventory, evidence, tmp_path, monkeypatch, capsys
+):
+    """Run the actual producer with fake files/transports; no device/network imports."""
+    from hardware import device_runner
+
+    config = copy.deepcopy(inventory)
+    config.update(enabled=True, allow_meter_loss=True, cleanup_allow=["restore_meter_service"])
+    root = tmp_path / "controller"
+    (root / "inverter_control").mkdir(parents=True)
+    (root / "version").write_text(config["controller_version"])
+    source = b"# offline producer contract fixture\n"
+    (root / "inverter_control/dbus_native.py").write_bytes(source)
+    config["native_client_sha256"] = hashlib.sha256(source).hexdigest()
+    firmware = tmp_path / "venus-version"
+    firmware.write_text(config["venus_firmware"])
+    files = {"/data/inverter-control": root, "/opt/victronenergy/version": firmware}
+    monkeypatch.setattr(device_runner, "Path", files.__getitem__)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(device_runner.signal, "signal", Mock())
+    supervised = Mock(return_value=True)
+    monkeypatch.setattr(device_runner, "service_running", supervised)
+    monkeypatch.setattr(
+        device_runner.subprocess, "run", Mock(side_effect=AssertionError("device command"))
+    )
+
+    native = Mock()
+    native.get_value.side_effect = [probe["expected"] for probe in config["identity"]]
+    broker = Mock()
+    broker.connect.side_effect = AssertionError("network connection")
+    modules = {
+        name: ModuleType(name)
+        for name in (
+            "paho",
+            "paho.mqtt",
+            "paho.mqtt.client",
+            "inverter_control",
+            "inverter_control.dbus_native",
+        )
+    }
+    modules["paho"].mqtt = modules["paho.mqtt"]
+    modules["paho.mqtt"].client = modules["paho.mqtt.client"]
+    modules["paho.mqtt.client"].Client = Mock(return_value=broker)
+    modules["paho.mqtt.client"].CallbackAPIVersion = Mock(VERSION2=2)
+    modules["inverter_control.dbus_native"].NativeDbusClient = Mock(return_value=native)
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    assert device_runner.run_device(config, preflight_only=True) == 0
+    emitted = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    preflight = next(event for event in emitted if event["kind"] == "preflight")
+    assert emitted[-1]["kind"] == "preflight_only"
+    assert emitted[-1]["qualification"] is False
+    supervised.assert_called_once_with(config["meter_service"])
+    broker.connect.assert_not_called()
+    native.close.assert_called_once()
+    # Feed the actual serialized identity/version/hash fields to the gate,
+    # together with synthetic measurements using the same monotonic epoch.
+    offset = preflight["t"] + 1
+    events = [preflight] + [
+        {**event, "t": event["t"] + offset} for event in evidence if event["kind"] != "preflight"
+    ]
+    assert evaluate(config, events)["passed"] is True
