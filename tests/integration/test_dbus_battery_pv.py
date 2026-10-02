@@ -27,28 +27,23 @@ class TestDBusBatteryState:
 
     def test_battery_voltage_range(self, mqtt_client: MqttClient) -> None:
         """Battery voltage should be in realistic 48-58V range."""
-        mqtt_client.subscribe("jbd/bms/1/voltage")
+        mqtt_client.subscribe("battery/sensor/voltage_bms1/state")
         time.sleep(3)
 
-        messages = mqtt_client.messages_on("jbd/bms/1/voltage")
+        messages = mqtt_client.messages_on("battery/sensor/voltage_bms1/state")
         assert messages, "No voltage messages from mock battery"
 
-        data = json.loads(messages[0]["payload"])
-        voltage = data.get("value")
-        assert voltage is not None, "Voltage payload missing 'value' key"
+        voltage = float(messages[0]["payload"])
         assert 40.0 <= voltage <= 60.0, f"Battery voltage {voltage}V outside 40-60V range"
 
     def test_battery_soc_oscillates(self, mqtt_client: MqttClient) -> None:
         """SOC should change over time (mock oscillates)."""
-        mqtt_client.subscribe("jbd/bms/1/soc")
+        mqtt_client.subscribe("battery/sensor/soc_bms1/state")
         time.sleep(5)
 
         soc_values = []
-        for msg in mqtt_client.messages_on("jbd/bms/1/soc"):
-            data = json.loads(msg["payload"])
-            val = data.get("value")
-            if val is not None:
-                soc_values.append(float(val))
+        for msg in mqtt_client.messages_on("battery/sensor/soc_bms1/state"):
+            soc_values.append(float(msg["payload"]))
 
         assert len(soc_values) >= 2, f"Expected multiple SOC readings, got {len(soc_values)}"
         assert 0.0 <= min(soc_values) <= max(soc_values) <= 100.0, (
@@ -58,33 +53,30 @@ class TestDBusBatteryState:
 
     def test_battery_current_negative(self, mqtt_client: MqttClient) -> None:
         """Negative current indicates charging (mock-battery convention)."""
-        mqtt_client.subscribe("jbd/bms/1/current")
+        mqtt_client.subscribe("battery/sensor/current_bms1/state")
         time.sleep(3)
 
-        messages = mqtt_client.messages_on("jbd/bms/1/current")
+        messages = mqtt_client.messages_on("battery/sensor/current_bms1/state")
         assert messages, "No current messages from mock battery"
 
-        data = json.loads(messages[0]["payload"])
-        current = data.get("value")
-        assert current is not None, "Current payload missing 'value' key"
-        assert isinstance(current, int | float), f"Current {current} is not numeric"
+        current = float(messages[0]["payload"])
         assert current < 0, f"Expected negative current (charging), got {current}"
 
-    def test_battery_state_aggregate(self, mqtt_client: MqttClient) -> None:
-        """State topic should aggregate voltage, current, and soc."""
-        mqtt_client.subscribe("jbd/bms/1/state")
+    def test_battery_core_sensors_present(self, mqtt_client: MqttClient) -> None:
+        """Core ESPHome battery sensors should publish scalar state payloads."""
+        topics = (
+            "battery/sensor/voltage_bms1/state",
+            "battery/sensor/current_bms1/state",
+            "battery/sensor/soc_bms1/state",
+        )
+        for topic in topics:
+            mqtt_client.subscribe(topic)
         time.sleep(3)
 
-        messages = mqtt_client.messages_on("jbd/bms/1/state")
-        assert messages, "No state messages from mock battery"
-
-        data = json.loads(messages[0]["payload"])
-        for key in ("voltage", "current", "soc"):
-            assert key in data, f"State payload missing key '{key}'"
-
-        assert isinstance(data["voltage"], int | float)
-        assert isinstance(data["current"], int | float)
-        assert isinstance(data["soc"], int | float)
+        for topic in topics:
+            messages = mqtt_client.messages_on(topic)
+            assert messages, f"No messages on {topic}"
+            float(messages[0]["payload"])  # scalar numeric payload
 
 
 class TestDBusPVState:
@@ -150,11 +142,13 @@ class TestBatteryPVEndToEnd:
 
     def test_concurrent_battery_pv_publishing(self, mqtt_client: MqttClient) -> None:
         """Both battery and PV should publish to MQTT simultaneously."""
-        mqtt_client.subscribe("jbd/bms/1/#")
+        mqtt_client.subscribe("battery/sensor/#")
         mqtt_client.subscribe("tele/tasmota-pv/#")
         time.sleep(5)
 
-        battery_topics = [m for m in mqtt_client.messages if m["topic"].startswith("jbd/bms/1/")]
+        battery_topics = [
+            m for m in mqtt_client.messages if m["topic"].startswith("battery/sensor/")
+        ]
         pv_topics = [m for m in mqtt_client.messages if "tasmota-pv" in m["topic"]]
 
         assert battery_topics, "No battery topics received"
@@ -162,13 +156,13 @@ class TestBatteryPVEndToEnd:
 
     def test_pv_power_updates(self, mqtt_client: MqttClient) -> None:
         """PV power should update following the simulated diurnal curve."""
-        mqtt_client.subscribe("tele/tasmota-pv/STATE")
+        mqtt_client.subscribe("tele/tasmota-pv/SENSOR")
         time.sleep(5)
 
         powers = []
-        for msg in mqtt_client.messages_on("tele/tasmota-pv/STATE"):
+        for msg in mqtt_client.messages_on("tele/tasmota-pv/SENSOR"):
             data = json.loads(msg["payload"])
-            power = data.get("StatusSNS", {}).get("ENERGY", {}).get("Power")
+            power = data.get("ENERGY", {}).get("Power")
             if power is not None:
                 powers.append(float(power))
 
@@ -176,25 +170,22 @@ class TestBatteryPVEndToEnd:
         assert all(p >= 0 for p in powers), f"PV power should be >= 0, got {powers}"
 
     def test_battery_cell_voltage_consistent(self, mqtt_client: MqttClient) -> None:
-        """Cell voltage min should be less than or equal to max."""
-        mqtt_client.subscribe("jbd/bms/1/cell_voltage_min")
-        mqtt_client.subscribe("jbd/bms/1/cell_voltage_max")
+        """Cell voltages should stay in a realistic pack range."""
+        mqtt_client.subscribe("battery/sensor/voltage_cell1_bms1/state")
+        mqtt_client.subscribe("battery/sensor/voltage_cell2_bms1/state")
         time.sleep(3)
 
-        v_min_msgs = mqtt_client.messages_on("jbd/bms/1/cell_voltage_min")
-        v_max_msgs = mqtt_client.messages_on("jbd/bms/1/cell_voltage_max")
+        c1_msgs = mqtt_client.messages_on("battery/sensor/voltage_cell1_bms1/state")
+        c2_msgs = mqtt_client.messages_on("battery/sensor/voltage_cell2_bms1/state")
 
-        assert v_min_msgs, "No cell_voltage_min messages"
-        assert v_max_msgs, "No cell_voltage_max messages"
+        assert c1_msgs, "No voltage_cell1_bms1 messages"
+        assert c2_msgs, "No voltage_cell2_bms1 messages"
 
-        v_min = json.loads(v_min_msgs[0]["payload"]).get("value")
-        v_max = json.loads(v_max_msgs[0]["payload"]).get("value")
+        v1 = float(c1_msgs[0]["payload"])
+        v2 = float(c2_msgs[0]["payload"])
 
-        assert v_min is not None
-        assert v_max is not None
-        assert v_min <= v_max, f"Cell min {v_min}V > max {v_max}V"
-        assert 2.5 <= v_min <= 4.5, f"Cell min {v_min}V outside realistic range"
-        assert 2.5 <= v_max <= 4.5, f"Cell max {v_max}V outside realistic range"
+        assert 2.5 <= v1 <= 4.5, f"Cell1 {v1}V outside realistic range"
+        assert 2.5 <= v2 <= 4.5, f"Cell2 {v2}V outside realistic range"
 
 
 class TestControlLoopDBusToMQTT:
