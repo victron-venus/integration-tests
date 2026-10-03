@@ -1,18 +1,14 @@
 # Dockerfile.test for integration testing
 # Uses environment variables for MQTT connection
 
-FROM python:3.14-slim
+FROM python:3.14-slim@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4
 
 WORKDIR /app
 ENV MQTT_HOST=${MQTT_HOST:-mqtt-broker}
 ENV MQTT_PORT=${MQTT_PORT:-1883}
 
-RUN pip install --no-cache-dir --only-binary :all: \
-    paho-mqtt==2.1.0 \
-    pytest-asyncio==1.4.0 \
-    pytest-html==4.1.1 \
-    pytest==9.1.1 \
-    websockets==17.1 && \
+COPY requirements-test-runner.txt ./
+RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements-test-runner.txt && \
     groupadd --gid 1000 appgroup && \
     useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser && \
     chown -R appuser:appgroup /app
