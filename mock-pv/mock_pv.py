@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Mock Tasmota PV meter publisher for integration tests.
-Simulates HTTP-polled power data via MQTT (as dbus-tasmota-pv consumes).
+Simulates Tasmota SENSOR telemetry as consumed by dbus-tasmota-pv
+(tele/<topic>/SENSOR with a top-level ENERGY object).
 """
 
 import json
@@ -29,25 +30,23 @@ def main():
         hour_factor = abs((time.time() % 120) / 120 - 0.5) * 2  # 0..1 over 2 min
         power = round(base_w * hour_factor, 1)
 
-        tasmota_state = {
-            "StatusSNS": {
-                "Time": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "ENERGY": {
-                    "TotalStartTime": "2024-01-01T00:00:00",
-                    "Total": 1000.0,
-                    "Yesterday": 5.0,
-                    "Today": power / 1000,
-                    "Power": power,
-                    "ApparentPower": power,
-                    "ReactivePower": 0,
-                    "Factor": 1.0,
-                    "Voltage": 230,
-                    "Current": round(power / 230, 2),
-                },
-            }
+        sensor_payload = {
+            "Time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "ENERGY": {
+                "TotalStartTime": "2024-01-01T00:00:00",
+                "Total": 1000.0,
+                "Yesterday": 5.0,
+                "Today": power / 1000,
+                "Power": power,
+                "ApparentPower": power,
+                "ReactivePower": 0,
+                "Factor": 1.0,
+                "Voltage": 230,
+                "Current": round(power / 230, 2),
+            },
         }
 
-        client.publish("tele/tasmota-pv/STATE", json.dumps(tasmota_state))
+        client.publish("tele/tasmota-pv/SENSOR", json.dumps(sensor_payload))
         client.publish("stat/tasmota-pv/RESULT", json.dumps({"POWER": "ON"}))
         time.sleep(1)
 
