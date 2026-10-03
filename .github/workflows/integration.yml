@@ -22,6 +22,10 @@ jobs:
           repository: victron-venus/integration-tests
           ref: ${{ inputs.test-suite-ref || (github.repository == 'victron-venus/integration-tests' && github.sha || 'main') }}
           persist-credentials: false
+      - name: Select the Python version used by the dependency lock
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
       - run: |
           python3 -m pip install --require-hashes --only-binary=:all: -r .github/requirements-integration.txt
       - run: python3 -m pytest hardware/ contracts/ -q
@@ -46,6 +50,10 @@ jobs:
           repository: victron-venus/integration-tests
           ref: ${{ inputs.test-suite-ref || (github.repository == 'victron-venus/integration-tests' && github.sha || 'main') }}
           persist-credentials: false
+      - name: Select the Python version used by the dependency lock
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
       - name: Install pinned syntax parser
         run: |
           python3 -m pip install --require-hashes --only-binary=:all: -r .github/requirements-workflow-contracts.txt
