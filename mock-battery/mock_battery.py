@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Mock battery MQTT publisher for integration tests.
-Simulates esphome-jbd-bms-mqtt / dbus-mqtt-battery input topics.
+Simulates esphome-jbd-bms-mqtt topics consumed by dbus-mqtt-battery
+(topic_prefix battery, ESPHome .../sensor/<name>/state scalar payloads).
 """
 
-import json
 import os
 import time
 
@@ -26,23 +26,24 @@ def main():
     soc = 78.0
     while True:
         soc = max(10.0, min(100.0, soc + (time.time() % 3 - 1) * 0.1))
+        soc_s = f"{soc:.1f}"
 
+        # Match dbus-mqtt-battery / esphome-jbd layout (battery/sensor/.../state).
         readings = {
-            "jbd/bms/1/voltage": 52.4,
-            "jbd/bms/1/current": -12.5,
-            "jbd/bms/1/soc": round(soc, 1),
-            "jbd/bms/1/cell_voltage_min": 3.28,
-            "jbd/bms/1/cell_voltage_max": 3.31,
-            "jbd/bms/1/temperature": 22.5,
+            "battery/sensor/voltage_bms1/state": "52.4",
+            "battery/sensor/current_bms1/state": "-12.5",
+            "battery/sensor/soc_bms1/state": soc_s,
+            "battery/sensor/voltage_cell1_bms1/state": "3.28",
+            "battery/sensor/voltage_cell2_bms1/state": "3.31",
+            "battery/sensor/temperature1_bms1/state": "22.5",
+            "battery/sensor/voltage_total/state": "52.4",
+            "battery/sensor/current_total/state": "-12.5",
+            "battery/sensor/soc_total/state": soc_s,
         }
 
         for topic, value in readings.items():
-            client.publish(topic, json.dumps({"value": value}))
+            client.publish(topic, value)
 
-        client.publish(
-            "jbd/bms/1/state",
-            json.dumps({"voltage": 52.4, "current": -12.5, "soc": round(soc, 1)}),
-        )
         time.sleep(1)
 
 
