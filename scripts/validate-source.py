@@ -66,6 +66,12 @@ def error_location(name, error):
 def main():
     """Run syntax and workflow semantic checks against the current checkout."""
     root = Path(__file__).resolve().parents[1]
+    subprocess.run(["python3", "scripts/validate_requirement_lock.py"], cwd=root, check=True)
+    subprocess.run(
+        ["python3", "-m", "unittest", "discover", "-s", "tests", "-p", "test_requirement_lock.py"],
+        cwd=root,
+        check=True,
+    )
     policy = json.loads((root / ".release-policy.json").read_text())
     failures, counts = [], {}
     for name, path in source_paths(root, policy.get("syntax_exclude", [])):
