@@ -35,7 +35,7 @@ flowchart TB
     end
 
     DBD -->|"publish"| MQTT
-    BAT -->|"jbd/bms/#"| MQTT
+    BAT -->|"battery/sensor/+/state"| MQTT
     PV -->|"tele/tasmota-pv/#"| MQTT
     MQTT -->|"subscribe"| TEST
 
@@ -71,7 +71,7 @@ docker compose down -v
 - WebSocket state propagation (when dashboard-go is enabled)
 
 ### Battery & PV Mocks (`test_battery_pv_mocks.py`)
-- Battery SOC, voltage on `jbd/bms/1/#` topics
+- Battery SOC, voltage on `battery/sensor/+/state` topics
 - Tasmota PV power on `tele/tasmota-pv/#` topics
 
 ### D-Bus Battery/PV Scenarios (`test_dbus_battery_pv.py`)
