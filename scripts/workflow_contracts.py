@@ -16,6 +16,8 @@ from pathlib import Path
 import yaml
 
 
+QUALITY_GATE = "quality-gate.yml"
+
 def validate_codeql(workflows):
     """All CodeQL components in the repository share one immutable release."""
     repository_pins = set()
@@ -62,7 +64,7 @@ def validate_generator_pins(directory, workflows):
     if any(not re.fullmatch(r"[0-9a-f]{40}", pin) for pin in pins.values()):
         raise ValueError("Generator pins must be full commit SHAs")
     for filename, workflow in workflows.items():
-        if filename not in {"quality-gate.yml", "release-pipeline.yml"}:
+        if filename not in {QUALITY_GATE, "release-pipeline.yml"}:
             continue
         source = (directory / ".github/workflows" / filename).read_text()
         if not source.startswith(
@@ -72,31 +74,33 @@ def validate_generator_pins(directory, workflows):
         validate_workflow_pins(filename, workflow, pins)
 
 
+def _callable_workflow(workflows, visited, filename, chain=()):
+    """Traverse callable workflows, retaining cycle detection before visited pruning."""
+    if filename in chain:
+        raise ValueError(f"Recursive validation: {chain} -> {filename}")
+    if filename in visited:
+        return
+    workflow = workflows[filename]
+    triggers = workflow.get("on", {})
+    if not isinstance(triggers, dict) or "workflow_call" not in triggers:
+        raise ValueError(f"{filename}: missing workflow_call")
+    if set(triggers) - {"workflow_call", "workflow_dispatch"}:
+        raise ValueError(f"{filename}: validation must start through Quality gate")
+    visited.add(filename)
+    for name, job in workflow.get("jobs", {}).items():
+        reference = job.get("uses", "")
+        if reference.startswith("./.github/workflows/"):
+            _callable_workflow(workflows, visited, reference.rsplit("/", 1)[-1], (*chain, filename))
+        elif "runs-on" in job and "timeout-minutes" not in job:
+            raise ValueError(f"{filename}/{name}: an explicit timeout is required")
+
+
 def validate_graph(workflows, validators):
     """Walk callable validators and enforce one orchestration entry point."""
     visited = set()
 
-    def callable_workflow(filename, chain=()):
-        if filename in chain:
-            raise ValueError(f"Recursive validation: {chain} -> {filename}")
-        if filename in visited:
-            return
-        workflow = workflows[filename]
-        triggers = workflow.get("on", {})
-        if not isinstance(triggers, dict) or "workflow_call" not in triggers:
-            raise ValueError(f"{filename}: missing workflow_call")
-        if set(triggers) - {"workflow_call", "workflow_dispatch"}:
-            raise ValueError(f"{filename}: validation must start through Quality gate")
-        visited.add(filename)
-        for name, job in workflow.get("jobs", {}).items():
-            reference = job.get("uses", "")
-            if reference.startswith("./.github/workflows/"):
-                callable_workflow(reference.rsplit("/", 1)[-1], (*chain, filename))
-            elif "runs-on" in job and "timeout-minutes" not in job:
-                raise ValueError(f"{filename}/{name}: an explicit timeout is required")
-
     for filename in validators:
-        callable_workflow(filename)
+        _callable_workflow(workflows, visited, filename)
     return visited
 
 
@@ -118,10 +122,10 @@ def validate(directory: Path, *, actions_only=False) -> None:
             "pull_request" in workflow.get("on", {})
             and filename not in visited
             and filename
-            not in {"quality-gate.yml", "auto-approve.yml", "auto-merge.yml"}
+            not in {QUALITY_GATE, "auto-approve.yml", "auto-merge.yml"}
         ):
             raise ValueError(f"{filename}: PR validator is outside the required gate")
-    gate = workflows["quality-gate.yml"]["jobs"]
+    gate = workflows[QUALITY_GATE]["jobs"]
     expected = {
         f"./.github/workflows/{filename}" for filename in policy["validation_workflows"]
     }
