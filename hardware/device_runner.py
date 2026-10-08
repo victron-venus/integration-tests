@@ -553,6 +553,30 @@ def run_device(config, preflight_only=False):
     return 0 if result["passed"] else 1
 
 
+def _remote_result(config, stdout, code, preflight):
+    """Decode remote evidence and retain the existing exit-status policy."""
+    try:
+        events = [json.loads(line) for line in stdout.splitlines()]
+        if preflight:
+            result = {
+                "passed": False,
+                "qualification": False,
+                "mode": "preflight",
+                "exit_code": code,
+            }
+        else:
+            result = evaluate(config, events)
+            if code:
+                result["passed"] = False
+                result["errors"].append("SSH/device process failed")
+            if not result["passed"]:
+                code = 1
+    except (ValueError, KeyError, TypeError) as error:
+        result = {"passed": False, "error": type(error).__name__}
+        code = 1
+    return result, code
+
+
 def main(argv=None):
     """Plan offline, or execute this reviewed source through host-key-checked SSH."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -635,25 +659,7 @@ def main(argv=None):
         stderr = "Remote deadline exceeded; independently verify meter service restoration.\n"
     (output / "events.jsonl").write_text(stdout)
     (output / "stderr.log").write_text(stderr)
-    try:
-        events = [json.loads(line) for line in stdout.splitlines()]
-        if args.preflight:
-            result = {
-                "passed": False,
-                "qualification": False,
-                "mode": "preflight",
-                "exit_code": code,
-            }
-        else:
-            result = evaluate(config, events)
-            if code:
-                result["passed"] = False
-                result["errors"].append("SSH/device process failed")
-            if not result["passed"]:
-                code = 1
-    except (ValueError, KeyError, TypeError) as error:
-        result = {"passed": False, "error": type(error).__name__}
-        code = 1
+    result, code = _remote_result(config, stdout, code, args.preflight)
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     hashes = {
         p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in output.iterdir() if p.is_file()

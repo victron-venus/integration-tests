@@ -421,7 +421,10 @@ class Lab:
             if x[:2] == ["command", ["svc", "-u", self.config["meter_service"]]]
         ]
         assert all(journal and journal[0] < i for i in down), (self.name, "stop before journal")
-        assert not restore or journal, (self.name, "restoration without prior attempted journal")
+        assert all(journal and journal[0] < i for i in restore), (
+            self.name,
+            "restoration without prior attempted journal",
+        )
         if self.options.get("must_restore"):
             assert restore and restore[0] > journal[0], (
                 self.name,

@@ -163,3 +163,15 @@ def test_existing_failure_propagates_after_successful_cleanup():
         "ValueError",
         "command:svc -d",
     )
+
+
+def test_restore_before_its_journal_fails_even_without_required_restore():
+    original = (
+        '                fault_time = emit("meter_down", service=config["meter_service"])["t"]'
+    )
+    assert TEXT.count(original) == 1
+    unsafe = TEXT.replace(original, "                restore_meter(config, attempted)\n" + original)
+    lab = Lab("restore_before_journal")
+    lab.run(unsafe)
+    with pytest.raises(AssertionError, match="restoration without prior attempted journal"):
+        lab.assert_safety()
