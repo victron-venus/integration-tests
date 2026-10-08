@@ -377,6 +377,7 @@ class Lab:
         ns = self.namespace()
         exec(compile(ast.Module(body=functions, type_ignores=[]), str(SOURCE), "exec"), ns)
         FORBIDDEN_EVENTS.clear()
+        self.exception = None
         BLOCK_EXTERNAL = True
         try:
             try:
@@ -385,6 +386,7 @@ class Lab:
                 )
                 self.outcome = {"return": result}
             except BaseException as error:
+                self.exception = error
                 self.outcome = {"error": type(error).__name__, "message": str(error)}
         finally:
             BLOCK_EXTERNAL = False
@@ -419,7 +421,10 @@ class Lab:
             if x[:2] == ["command", ["svc", "-u", self.config["meter_service"]]]
         ]
         assert all(journal and journal[0] < i for i in down), (self.name, "stop before journal")
-        assert not restore or journal, (self.name, "restoration without prior attempted journal")
+        assert all(journal and journal[0] < i for i in restore), (
+            self.name,
+            "restoration without prior attempted journal",
+        )
         if self.options.get("must_restore"):
             assert restore and restore[0] > journal[0], (
                 self.name,
@@ -454,12 +459,6 @@ class Lab:
             assert self.outcome.get("error") == self.options["raised"], (self.name, self.outcome)
         if self.options.get("cleanup_error"):
             assert any(e["kind"] == "cleanup_error" for e in self.events)
-        if self.options.get("cleanup_stops_at"):
-            kinds = [x[0] for x in self.trace]
-            if self.options["cleanup_stops_at"] == "disconnect":
-                assert "broker.loop_stop" not in kinds and "native.close" not in kinds
-            if self.options["cleanup_stops_at"] == "loop_stop":
-                assert "native.close" not in kinds
         return self
 
 
@@ -633,7 +632,9 @@ for point in ("thread.create:worker", "thread.start:worker", "broker.connect", "
 for point in ("broker.disconnect", "broker.loop_stop", "thread.start:closer", "thread.join:closer"):
     CASES.append((point, dict(fault=(point, 1, "runtime"), must_restore=True)))
 for name, options in CASES:
+    if name == "cleanup_error_emit_raises":
+        options.update(cleanup_complete=True)
     if name == "broker.disconnect":
-        options.update(raised="RuntimeError", cleanup_stops_at="disconnect")
+        options.update(raised="RuntimeError", cleanup_complete=True)
     if name == "broker.loop_stop":
-        options.update(raised="RuntimeError", cleanup_stops_at="loop_stop")
+        options.update(raised="RuntimeError", cleanup_complete=True)
