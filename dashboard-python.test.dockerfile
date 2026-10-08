@@ -22,8 +22,8 @@ RUN printf '%s\n' \
     '    --hash=sha256:d5037ec17654c756fc9841270f413c5fc9ecef89108b443f5dd34600a3ccdb19 \' \
     '    --hash=sha256:e7ab1387b222ab640dbd057b95548a199e4c621aa35e9f6a32c0516c76e7637d \' \
     '    --hash=sha256:fbe0489871e74ebfb70379a32526c62b9fb615acf13576b9f19bc09a142f62b0' \
-    | pip install --no-cache-dir --only-binary :all: --require-hashes -r /dev/stdin
-RUN uv sync --frozen --no-dev --no-install-project --no-build && \
+    | pip install --no-cache-dir --only-binary :all: --require-hashes -r /dev/stdin && \
+    uv sync --frozen --no-dev --no-install-project --no-build && \
     useradd --uid 1000 --create-home appuser
 COPY src/inverter_dashboard/ ./src/inverter_dashboard/
 COPY VERSION ./src/inverter_dashboard/VERSION
