@@ -28,6 +28,12 @@ branch and the `production` environment; validation never deploys resources.
 
 Install Docker with Compose and Git. `bash scripts/ci.sh python` or `go` checks out the pinned dashboard revision and runs the existing MQTT/D-Bus mock suite. The default runs both. Containers use isolated project names/networks with no host ports. Reports are copied into `reports/` before the temporary stack is removed. These are current working-tree suite tests against pinned consumers.
 
+The obsolete `dashboard-go.test.dockerfile` image wrapper has been removed. It
+was not used by the integration runner or Compose definitions and referred to a
+legacy, tag-only registry image. For the Go dashboard, run
+`bash scripts/ci.sh go`: the runner builds the Dockerfile from its pinned source
+revision before running the same mock integration suite.
+
 ## Coverage limits
 
 - Validation-only policy: no synthetic beta/RC artifacts or tag-triggered stable releases.
