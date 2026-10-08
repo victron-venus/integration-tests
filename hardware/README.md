@@ -26,6 +26,23 @@ Execution additionally requires `enabled: true`, `allow_meter_loss: true`, and
 SSH never accepts an unknown key. Inventory paths are confined to `hardware/` or `/etc/victron-lab/`; evidence stays
 under `reports/`. The reviewed installation is `/data/inverter-control` using
 `/usr/bin/python3`. No package installation or deployment occurs.
+
+The operator's SSH client must be OpenSSH 9.1 or newer and expose a valid
+`RequiredRSASize` in its effective configuration. Only after execute/acknowledgment
+validation, the runner inspects that configuration without logging it and raises
+the RSA minimum to 2048 bits, preserving any stronger configured minimum. Host
+aliases, ports, known-host checks, routing and the remote command remain intact.
+Qualification and preflight now use a fresh SSH connection (`-S none`), even if
+the operator normally multiplexes sessions: an older master could have accepted
+a weaker host key. Existing masters are neither closed nor modified. Targets
+with only weaker RSA host keys need a stronger key and a separately verified
+known-host update; the runner never rotates or automatically trusts keys.
+An operator-supplied `ProxyJump` or `ProxyCommand` is a separate transport and
+needs its own strong-key policy. Offline dry-runs do not invoke SSH at all.
+The extra `ssh -G` evaluation also evaluates any operator-configured `Match exec`
+conditions; those conditions must be safe to evaluate more than once.
+See [RequiredRSASize](https://man.openbsd.org/ssh_config#RequiredRSASize).
+
 The runner sends its reviewed Python source through SSH, records its hash, and
 requires the expected installed native-client source hash. Pin the external
 meter with `GRID_EXPECTED_SERVICE` and the site's phases, and configure/review
