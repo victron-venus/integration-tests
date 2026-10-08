@@ -360,6 +360,165 @@ def bounded_close(client, timeout=2):
     return not closer.is_alive()
 
 
+def _make_message_callback(incoming, stop):
+    """Bind the evidence queue and stop flag without changing callback ownership."""
+
+    def on_message(_client, _userdata, message):
+        if message.topic == "inverter/state" and not message.retain:
+            try:
+                incoming.put_nowait((time.monotonic(), json.loads(message.payload)))
+            except (ValueError, queue.Full):
+                stop.set()  # Lost evidence is a gate failure, not a silently skipped sample.
+
+    return on_message
+
+
+def _make_reconnect_probe(config, client, stop, emit):
+    """Bind the read-only reconnect probe to the existing client and stop flag."""
+
+    def reconnect_probe():
+        # Only this read-only probe connection is disconnected. No global bus or
+        # production controller service is restarted by this test.
+        probe = config["identity"][0]
+        for _ in range(config["reconnect_count"]):
+            started = time.monotonic()
+            client._mark_failure(client._get_bus())  # exact production reconnect path
+            deadline = started + config["limits"]["probe_deadline_seconds"]
+            ok = False
+            while not stop.is_set() and time.monotonic() < deadline:
+                if (
+                    client.get_value(probe["service"], probe["path"], timeout=0.5)
+                    == probe["expected"]
+                ):
+                    ok = True
+                    break
+                time.sleep(0.1)
+            emit("reconnect", ok=ok, seconds=time.monotonic() - started)
+            if not ok:
+                stop.set()
+                break
+
+    return reconnect_probe
+
+
+def _observe_device(config, client, emit):
+    """Verify measured identity and the running meter before emitting preflight."""
+    observed = []
+    for probe in config["identity"]:
+        value = client.get_value(probe["service"], probe["path"], timeout=1)
+        if value != probe["expected"]:
+            raise ValueError(f"Identity mismatch: {probe['role']}")
+        observed.append({**probe, "observed": value})
+    if not service_running(config["meter_service"]):
+        raise ValueError("Lab meter service must already be running")
+    emit(
+        "preflight",
+        ok=True,
+        identity=observed,
+        controller_version=config["controller_version"],
+        native_client_sha256=config["native_client_sha256"],
+        venus_firmware=config["venus_firmware"],
+    )
+
+
+def _receive_sample(config, incoming, stop, worker, probe_deadline):
+    """Receive one fresh sample while retaining the bounded-progress checks."""
+    if stop.is_set():
+        raise RuntimeError("Reconnect or evidence collector failed")
+    if worker is not None and worker.is_alive() and time.monotonic() > probe_deadline:
+        raise TimeoutError("Native probe made no bounded reconnect progress")
+    try:
+        received, state = incoming.get(timeout=config["limits"]["sample_gap_seconds"])
+    except queue.Empty as error:
+        raise TimeoutError("Controller state absent: event-loop wedge or MQTT loss") from error
+    if time.monotonic() - received > config["limits"]["sample_gap_seconds"]:
+        raise TimeoutError("State queue is stale")
+    return received, state
+
+
+def _fault_meter_if_due(config, state, received, started, fault_time, emit, ownership):
+    """Record restoration ownership before any attempted meter stop."""
+    if fault_time is None and received - started >= config["duration_seconds"] / 2:
+        if (
+            state.get("grid_control_valid") is not True
+            or state.get("grid_loss_zero_applied") is not False
+        ):
+            raise ValueError("Meter is not healthy immediately before fault")
+        # Journal before the command: even an uncertain subprocess result requires restoration.
+        ownership["attempted"] = True
+        fault_time = emit("meter_down", service=config["meter_service"])["t"]
+        subprocess.run(
+            ["svc", "-d", checked_service(config["meter_service"])], check=True, timeout=5
+        )
+    return fault_time
+
+
+def _restore_meter_if_due(config, state, fault_time, restored, emit, ownership):
+    """Release restoration ownership only after the restored event is emitted."""
+    if fault_time is not None and not restored:
+        accepted = (
+            state.get("grid_control_valid") is False
+            and state.get("grid_loss_zero_applied") is True
+            and state.get("grid_loss_state") == "zero"
+        )
+        if (
+            accepted
+            or time.monotonic() - fault_time > config["limits"]["accepted_zero_seconds"] + 2
+        ):
+            restored = restore_meter(config, ownership["attempted"])
+            emit("meter_restored", ok=restored)
+            if not restored:
+                raise RuntimeError("Meter restoration failed; operator recovery required")
+            ownership["attempted"] = False
+    return restored
+
+
+def _collect_samples(config, incoming, stop, emit, reconnect_probe, ownership):
+    """Collect bounded evidence while preserving fault and recovery ordering."""
+    started = time.monotonic()
+    first = None
+    last_sample = float("-inf")
+    fault_time = None
+    restored = False
+    worker = None
+    probe_deadline = (
+        started + config["reconnect_count"] * config["limits"]["probe_deadline_seconds"] + 5
+    )
+    duration = min(21600, max(3600, int(config["duration_seconds"])))
+    while first is None or time.monotonic() - first <= duration + 1:
+        received, state = _receive_sample(config, incoming, stop, worker, probe_deadline)
+        if received - last_sample < 1:
+            continue
+        last_sample = received
+        # Bound the observer's own CPU/RSS: retain only gate evidence, at 1 Hz.
+        state = {
+            key: state.get(key)
+            for key in (
+                "uptime",
+                "dry_run",
+                "grid_control_valid",
+                "grid_loss_zero_applied",
+                "grid_loss_state",
+                "perf",
+            )
+        }
+        if first is None:
+            if state.get("dry_run") is not False or state.get("grid_control_valid") is not True:
+                raise ValueError("Controller must be live with a valid meter before qualification")
+            first = received
+            worker = threading.Thread(target=reconnect_probe, daemon=True)
+            worker.start()
+        emit("sample", t=received, state=state)
+        fault_time = _fault_meter_if_due(
+            config, state, received, started, fault_time, emit, ownership
+        )
+        restored = _restore_meter_if_due(config, state, fault_time, restored, emit, ownership)
+    if worker is not None:
+        worker.join(timeout=1)
+        if worker.is_alive():
+            raise TimeoutError("Native probe event-loop wedged")
+
+
 def run_device(config, preflight_only=False):
     """Executed on the explicitly selected lab device, never on a PR runner."""
     validate_inventory(config, execute=True)
@@ -396,54 +555,14 @@ def run_device(config, preflight_only=False):
     broker = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     incoming = queue.Queue(maxsize=10000)
     stop = threading.Event()
-    attempted = False
+    ownership = {"attempted": False}
 
-    def on_message(_client, _userdata, message):
-        if message.topic == "inverter/state" and not message.retain:
-            try:
-                incoming.put_nowait((time.monotonic(), json.loads(message.payload)))
-            except (ValueError, queue.Full):
-                stop.set()  # Lost evidence is a gate failure, not a silently skipped sample.
+    on_message = _make_message_callback(incoming, stop)
 
-    def reconnect_probe():
-        # Only this read-only probe connection is disconnected. No global bus or
-        # production controller service is restarted by this test.
-        probe = config["identity"][0]
-        for _ in range(config["reconnect_count"]):
-            started = time.monotonic()
-            client._mark_failure(client._get_bus())  # exact production reconnect path
-            deadline = started + config["limits"]["probe_deadline_seconds"]
-            ok = False
-            while not stop.is_set() and time.monotonic() < deadline:
-                if (
-                    client.get_value(probe["service"], probe["path"], timeout=0.5)
-                    == probe["expected"]
-                ):
-                    ok = True
-                    break
-                time.sleep(0.1)
-            emit("reconnect", ok=ok, seconds=time.monotonic() - started)
-            if not ok:
-                stop.set()
-                break
+    reconnect_probe = _make_reconnect_probe(config, client, stop, emit)
 
     try:
-        observed = []
-        for probe in config["identity"]:
-            value = client.get_value(probe["service"], probe["path"], timeout=1)
-            if value != probe["expected"]:
-                raise ValueError(f"Identity mismatch: {probe['role']}")
-            observed.append({**probe, "observed": value})
-        if not service_running(config["meter_service"]):
-            raise ValueError("Lab meter service must already be running")
-        emit(
-            "preflight",
-            ok=True,
-            identity=observed,
-            controller_version=config["controller_version"],
-            native_client_sha256=config["native_client_sha256"],
-            venus_firmware=config["venus_firmware"],
-        )
+        _observe_device(config, client, emit)
         if preflight_only:
             emit("preflight_only", qualification=False)
             return 0
@@ -451,92 +570,15 @@ def run_device(config, preflight_only=False):
         broker.on_connect = lambda connection, *_args: connection.subscribe("inverter/state", qos=1)
         broker.connect("127.0.0.1", 1883, keepalive=30)
         broker.loop_start()
-        started = time.monotonic()
-        first = None
-        last_sample = float("-inf")
-        fault_time = None
-        restored = False
-        worker = None
-        probe_deadline = (
-            started + config["reconnect_count"] * config["limits"]["probe_deadline_seconds"] + 5
-        )
-        duration = min(21600, max(3600, int(config["duration_seconds"])))
-        while first is None or time.monotonic() - first <= duration + 1:
-            if stop.is_set():
-                raise RuntimeError("Reconnect or evidence collector failed")
-            if worker is not None and worker.is_alive() and time.monotonic() > probe_deadline:
-                raise TimeoutError("Native probe made no bounded reconnect progress")
-            try:
-                received, state = incoming.get(timeout=config["limits"]["sample_gap_seconds"])
-            except queue.Empty as error:
-                raise TimeoutError(
-                    "Controller state absent: event-loop wedge or MQTT loss"
-                ) from error
-            if time.monotonic() - received > config["limits"]["sample_gap_seconds"]:
-                raise TimeoutError("State queue is stale")
-            if received - last_sample < 1:
-                continue
-            last_sample = received
-            # Bound the observer's own CPU/RSS: retain only gate evidence, at 1 Hz.
-            state = {
-                key: state.get(key)
-                for key in (
-                    "uptime",
-                    "dry_run",
-                    "grid_control_valid",
-                    "grid_loss_zero_applied",
-                    "grid_loss_state",
-                    "perf",
-                )
-            }
-            if first is None:
-                if state.get("dry_run") is not False or state.get("grid_control_valid") is not True:
-                    raise ValueError(
-                        "Controller must be live with a valid meter before qualification"
-                    )
-                first = received
-                worker = threading.Thread(target=reconnect_probe, daemon=True)
-                worker.start()
-            emit("sample", t=received, state=state)
-            if fault_time is None and received - started >= config["duration_seconds"] / 2:
-                if (
-                    state.get("grid_control_valid") is not True
-                    or state.get("grid_loss_zero_applied") is not False
-                ):
-                    raise ValueError("Meter is not healthy immediately before fault")
-                # Journal before the command: even an uncertain subprocess result requires restoration.
-                attempted = True
-                fault_time = emit("meter_down", service=config["meter_service"])["t"]
-                subprocess.run(
-                    ["svc", "-d", checked_service(config["meter_service"])], check=True, timeout=5
-                )
-            if fault_time is not None and not restored:
-                accepted = (
-                    state.get("grid_control_valid") is False
-                    and state.get("grid_loss_zero_applied") is True
-                    and state.get("grid_loss_state") == "zero"
-                )
-                if (
-                    accepted
-                    or time.monotonic() - fault_time > config["limits"]["accepted_zero_seconds"] + 2
-                ):
-                    restored = restore_meter(config, attempted)
-                    emit("meter_restored", ok=restored)
-                    if not restored:
-                        raise RuntimeError("Meter restoration failed; operator recovery required")
-                    attempted = False
-        if worker is not None:
-            worker.join(timeout=1)
-            if worker.is_alive():
-                raise TimeoutError("Native probe event-loop wedged")
+        _collect_samples(config, incoming, stop, emit, reconnect_probe, ownership)
     except Exception as error:  # Evidence and cleanup must survive any scenario failure.
         emit("error", error=type(error).__name__, message=str(error))
     finally:
         stop.set()
         try:
-            if attempted:
+            if ownership["attempted"]:
                 try:
-                    emit("meter_restored", ok=restore_meter(config, attempted))
+                    emit("meter_restored", ok=restore_meter(config, ownership["attempted"]))
                 except Exception as error:
                     emit("cleanup_error", error=type(error).__name__)
         finally:

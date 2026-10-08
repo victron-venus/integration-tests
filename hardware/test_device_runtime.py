@@ -1,5 +1,8 @@
 """Offline execution/failure coverage; no physical device or network is used."""
 
+import re
+from types import SimpleNamespace
+
 import pytest
 
 from hardware._device_runtime import CASES, TEXT, Lab
@@ -63,12 +66,12 @@ def test_offline_device_lifecycle(name, options):
 
 def test_journal_failure_requires_prior_fault_ownership():
     original = (
-        "                attempted = True\n"
-        '                fault_time = emit("meter_down", service=config["meter_service"])["t"]'
+        '        ownership["attempted"] = True\n'
+        '        fault_time = emit("meter_down", service=config["meter_service"])["t"]'
     )
     reordered = (
-        '                fault_time = emit("meter_down", service=config["meter_service"])["t"]\n'
-        "                attempted = True"
+        '        fault_time = emit("meter_down", service=config["meter_service"])["t"]\n'
+        '        ownership["attempted"] = True'
     )
     assert TEXT.count(original) == 1
     unsafe = TEXT.replace(original, reordered)
@@ -79,8 +82,11 @@ def test_journal_failure_requires_prior_fault_ownership():
 
 
 def test_caught_external_io_still_fails_the_offline_guard():
-    original = "    try:\n        observed = []"
-    external = '    try:\n        open("/never-access-this-synthetic-path")\n        observed = []'
+    original = "    try:\n        _observe_device(config, client, emit)"
+    external = (
+        '    try:\n        open("/never-access-this-synthetic-path")\n'
+        "        _observe_device(config, client, emit)"
+    )
     assert TEXT.count(original) == 1
     unsafe = TEXT.replace(original, external)
     lab = Lab("blocked_external_io")
@@ -166,12 +172,65 @@ def test_existing_failure_propagates_after_successful_cleanup():
 
 
 def test_restore_before_its_journal_fails_even_without_required_restore():
-    original = (
-        '                fault_time = emit("meter_down", service=config["meter_service"])["t"]'
-    )
+    original = '        fault_time = emit("meter_down", service=config["meter_service"])["t"]'
     assert TEXT.count(original) == 1
-    unsafe = TEXT.replace(original, "                restore_meter(config, attempted)\n" + original)
+    unsafe = TEXT.replace(
+        original, '        restore_meter(config, ownership["attempted"])\n' + original
+    )
     lab = Lab("restore_before_journal")
     lab.run(unsafe)
     with pytest.raises(AssertionError, match="restoration without prior attempted journal"):
         lab.assert_safety()
+
+
+@pytest.mark.parametrize("failure", ["runtime", "interrupt", "base"])
+def test_restored_journal_failure_retains_cleanup_ownership(failure):
+    lab = (
+        Lab(
+            "restored_event_failure",
+            fault=("print:meter_restored", 1, failure),
+            must_restore=True,
+            restore_count=2,
+            cleanup_complete=True,
+        )
+        .run()
+        .assert_safety()
+    )
+    if failure == "base":
+        assert lab.outcome == {"error": "KeyboardInterrupt", "message": "print:meter_restored"}
+    else:
+        assert lab.outcome == {"return": 1}
+
+
+def test_failed_service_validation_precedes_stop_but_preserves_cleanup():
+    class ValidationLab(Lab):
+        def namespace(self):
+            ns = super().namespace()
+            matches = 0
+
+            def fullmatch(pattern, value):
+                nonlocal matches
+                if pattern == r"/service/[a-zA-Z0-9_-]+":
+                    matches += 1
+                    # Inventory and initial status have passed; reject the stop path.
+                    if matches == 3:
+                        return None
+                return re.fullmatch(pattern, value)
+
+            ns["re"] = SimpleNamespace(fullmatch=fullmatch, search=re.search)
+            return ns
+
+    lab = (
+        ValidationLab(
+            "invalid_service_before_stop", must_restore=True, restore_count=1, cleanup_complete=True
+        )
+        .run()
+        .assert_safety()
+    )
+    commands = [row[1] for row in lab.trace if row[0] == "command"]
+    assert ["svc", "-d", lab.config["meter_service"]] not in commands
+    assert lab.outcome == {"return": 1}
+    assert any(
+        event["kind"] == "error" and event.get("message") == "Invalid meter service"
+        for event in lab.events
+    )
