@@ -321,7 +321,7 @@ class Lab:
                 lab.log(NATIVE_CLOSE)
                 lab.point(NATIVE_CLOSE)
 
-        Thread = _thread_adapter(lab)
+        thread_type = _thread_adapter(lab)
 
         class Broker:
             def __init__(self, version):
@@ -351,7 +351,7 @@ class Lab:
                 lab.log(BROKER_LOOP_STOP)
                 lab.point(BROKER_LOOP_STOP)
 
-        Queue = _queue_adapter(lab)
+        queue_type = _queue_adapter(lab)
 
         mqtt = SimpleNamespace(Client=Broker, CallbackAPIVersion=SimpleNamespace(VERSION2=2))
         paho = SimpleNamespace(mqtt=SimpleNamespace(client=mqtt))
@@ -385,8 +385,8 @@ class Lab:
                 SIGTERM=signal.SIGTERM, SIGINT=signal.SIGINT, signal=set_signal
             ),
             "sys": SimpleNamespace(path=[]),
-            "threading": SimpleNamespace(Lock=Lock, Event=Event, Thread=Thread),
-            "queue": SimpleNamespace(Queue=Queue, Empty=queue.Empty, Full=queue.Full),
+            "threading": SimpleNamespace(Lock=Lock, Event=Event, Thread=thread_type),
+            "queue": SimpleNamespace(Queue=queue_type, Empty=queue.Empty, Full=queue.Full),
             "subprocess": SimpleNamespace(
                 run=lab.command,
                 SubprocessError=subprocess.SubprocessError,
