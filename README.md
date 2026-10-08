@@ -153,3 +153,9 @@ covered by the inverter-control repository's hardware-free unit tests.
 
 Run the mock-only profile as before, or use `docker-compose.ci.yml` with a locally built
 `dashboard-under-test:ci` image to require dashboard readiness and message propagation.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for reports, development checks and pull requests,
+[SECURITY.md](SECURITY.md) for private vulnerability reporting and deployment trust boundaries,
+and the [OpenSSF evidence index](docs/openssf-evidence.md) for assessment references and remaining verification.
