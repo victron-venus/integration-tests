@@ -619,6 +619,36 @@ def _remote_result(config, stdout, code, preflight):
     return result, code
 
 
+def _qualified_ssh_command(command):
+    """Keep destination policy while requiring a fresh, sufficiently strong connection."""
+    try:
+        result = subprocess.run(
+            [command[0], "-G", *command[1:]],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise ValueError(
+            "Cannot inspect SSH key policy; OpenSSH 9.1 or newer is required"
+        ) from None
+    if result.returncode:
+        raise ValueError("Cannot inspect SSH key policy; OpenSSH 9.1 or newer is required")
+    # Never persist the full configuration: proxy commands may contain private data.
+    fields = [line.split() for line in result.stdout.splitlines()]
+    values = [field[1:] for field in fields if field and field[0].lower() == "requiredrsasize"]
+    if (
+        len(values) != 1
+        or len(values[0]) != 1
+        or re.fullmatch(r"\d{1,9}", values[0][0], re.ASCII) is None
+    ):
+        raise ValueError("SSH must report one valid RequiredRSASize setting")
+    minimum = max(2048, int(values[0][0]))
+    # An existing master may have authenticated under an older, weaker policy.
+    return [command[0], "-S", "none", "-o", f"RequiredRSASize={minimum}", *command[1:]]
+
+
 def main(argv=None):
     """Plan offline, or execute this reviewed source through host-key-checked SSH."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -685,6 +715,7 @@ def main(argv=None):
         target,
         "/usr/bin/python3 -u -",
     ]
+    ssh = _qualified_ssh_command(ssh)
     code = 1
     try:
         process = subprocess.run(

@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -11,7 +12,14 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from hardware.device_runner import bounded_close, evaluate, main, restore_meter, validate_inventory
+from hardware.device_runner import (
+    _qualified_ssh_command,
+    bounded_close,
+    evaluate,
+    main,
+    restore_meter,
+    validate_inventory,
+)
 
 
 @pytest.fixture
@@ -72,6 +80,105 @@ def test_dry_run_never_opens_transport(inventory, tmp_path, monkeypatch):
     ):
         assert main(["--inventory", str(source), "--output", str(tmp_path / "reports/report")]) == 0
     assert json.loads((tmp_path / "reports/report/plan.json").read_text())["qualification"] is False
+
+
+@pytest.mark.parametrize("configured,expected", [("1024", 2048), ("2048", 2048), ("4096", 4096)])
+def test_ssh_key_policy_preserves_stronger_configuration(configured, expected):
+    command = ["ssh", "-o", "StrictHostKeyChecking=yes", "operator@alias", "/usr/bin/python3 -u -"]
+    result = subprocess.CompletedProcess(
+        [], 0, f"hostname example\nRequiredRSASize {configured}\n", ""
+    )
+    with patch("hardware.device_runner.subprocess.run", return_value=result) as run:
+        guarded = _qualified_ssh_command(command)
+    run.assert_called_once_with(
+        ["ssh", "-G", *command[1:]],
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    assert guarded == ["ssh", "-S", "none", "-o", f"RequiredRSASize={expected}", *command[1:]]
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "",
+        "requiredrsasize\n",
+        "requiredrsasize 2048 extra\n",
+        "requiredrsasize 2048\nrequiredrsasize 4096\n",
+        "requiredrsasize -1\n",
+        "requiredrsasize 2e3\n",
+        "requiredrsasize ２０４８\n",
+        "requiredrsasize 9999999999\n",
+    ],
+)
+def test_malformed_ssh_key_policy_does_not_expose_private_configuration(output):
+    result = subprocess.CompletedProcess([], 0, output + "proxycommand private-proxy-data\n", "")
+    with patch("hardware.device_runner.subprocess.run", return_value=result):
+        with pytest.raises(ValueError, match="^SSH must report one valid RequiredRSASize setting$"):
+            _qualified_ssh_command(["ssh", "operator@alias", "/usr/bin/python3 -u -"])
+
+
+@pytest.mark.parametrize(
+    "outcome", [OSError("private data"), subprocess.TimeoutExpired("ssh", 10, "private data")]
+)
+def test_ssh_policy_probe_errors_are_bounded_and_private(outcome):
+    with patch("hardware.device_runner.subprocess.run", side_effect=outcome):
+        with pytest.raises(ValueError, match="^Cannot inspect SSH key policy;") as error:
+            _qualified_ssh_command(["ssh", "operator@alias"])
+    assert "private data" not in str(error.value)
+    assert error.value.__suppress_context__ is True
+
+
+def test_unsupported_ssh_key_policy_fails_before_connection():
+    result = subprocess.CompletedProcess([], 255, "private config", "private diagnostic")
+    with patch("hardware.device_runner.subprocess.run", return_value=result) as run:
+        with pytest.raises(ValueError, match="^Cannot inspect SSH key policy;"):
+            _qualified_ssh_command(["ssh", "operator@alias"])
+    assert run.call_count == 1
+
+
+@pytest.mark.parametrize("preflight", [False, True])
+def test_execute_probes_key_policy_then_preserves_source_and_deadline(
+    inventory, tmp_path, monkeypatch, preflight
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "hardware").mkdir()
+    inventory.update(enabled=True, allow_meter_loss=True, cleanup_allow=["restore_meter_service"])
+    source = tmp_path / "hardware/inventory.json"
+    source.write_text(json.dumps(inventory))
+    output = tmp_path / "reports/execution"
+    arguments = [
+        "--inventory",
+        str(source),
+        "--output",
+        str(output),
+        "--execute",
+        "--ack-device",
+        inventory["device_id"],
+    ]
+    if preflight:
+        arguments.append("--preflight")
+    results = [
+        subprocess.CompletedProcess([], 0, "requiredrsasize 4096\n", ""),
+        subprocess.CompletedProcess([], 0, "", ""),
+    ]
+    with patch("hardware.device_runner.subprocess.run", side_effect=results) as run:
+        main(arguments)
+    probe, execute = run.call_args_list
+    original = probe.args[0][:1] + probe.args[0][2:]
+    assert execute.args[0] == ["ssh", "-S", "none", "-o", "RequiredRSASize=4096", *original[1:]]
+    assert original[-2:] == [inventory["ssh_target"], "/usr/bin/python3 -u -"]
+    assert execute.kwargs["timeout"] == inventory["duration_seconds"] + 300
+    assert execute.kwargs["check"] is False
+    assert execute.kwargs["text"] is True
+    assert execute.kwargs["capture_output"] is True
+    sent = execute.kwargs["input"]
+    assert sent.endswith(
+        f"\nraise SystemExit(run_device(json.loads({json.dumps(inventory)!r}), {preflight!r}))\n"
+    )
+    assert (output / "events.jsonl").read_text() == ""
 
 
 @pytest.mark.parametrize(
