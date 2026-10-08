@@ -533,15 +533,21 @@ def run_device(config, preflight_only=False):
         emit("error", error=type(error).__name__, message=str(error))
     finally:
         stop.set()
-        if attempted:
+        try:
+            if attempted:
+                try:
+                    emit("meter_restored", ok=restore_meter(config, attempted))
+                except Exception as error:
+                    emit("cleanup_error", error=type(error).__name__)
+        finally:
             try:
-                emit("meter_restored", ok=restore_meter(config, attempted))
-            except Exception as error:
-                emit("cleanup_error", error=type(error).__name__)
-        broker.disconnect()
-        broker.loop_stop()
-        if not bounded_close(client):
-            emit("error", error="TimeoutError", message="Native client close wedged")
+                broker.disconnect()
+            finally:
+                try:
+                    broker.loop_stop()
+                finally:
+                    if not bounded_close(client):
+                        emit("error", error="TimeoutError", message="Native client close wedged")
     result = evaluate(config, events)
     emit("result", **result)
     return 0 if result["passed"] else 1

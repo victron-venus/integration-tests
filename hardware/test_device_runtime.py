@@ -86,3 +86,80 @@ def test_caught_external_io_still_fails_the_offline_guard():
     lab = Lab("blocked_external_io")
     with pytest.raises(AssertionError, match="blocked external capabilities"):
         lab.run(unsafe)
+
+
+@pytest.mark.parametrize(
+    "faults,expected",
+    [
+        (
+            [("broker.disconnect", 1, "runtime"), ("broker.loop_stop", 1, "os")],
+            [("OSError", "broker.loop_stop"), ("RuntimeError", "broker.disconnect")],
+        ),
+        (
+            [("broker.disconnect", 1, "runtime"), ("thread.start:closer", 1, "os")],
+            [("OSError", "thread.start:closer"), ("RuntimeError", "broker.disconnect")],
+        ),
+        (
+            [
+                ("command:svc -d", 1, "value"),
+                ("command:svc -u", 1, "runtime"),
+                ("print:cleanup_error", 1, "interrupt"),
+                ("broker.disconnect", 1, "value"),
+                ("broker.loop_stop", 1, "os"),
+            ],
+            [
+                ("OSError", "broker.loop_stop"),
+                ("ValueError", "broker.disconnect"),
+                ("InterruptedError", "print:cleanup_error"),
+                ("RuntimeError", "command:svc -u"),
+            ],
+        ),
+    ],
+)
+def test_cleanup_attempts_later_resources_and_retains_exception_context(faults, expected):
+    lab = Lab("multiple_cleanup_failures", faults=faults, must_restore=True).run().assert_safety()
+    kinds = [row[0] for row in lab.trace]
+    assert kinds.index("broker.disconnect") < kinds.index("broker.loop_stop")
+    assert kinds.index("broker.loop_stop") < kinds.index(
+        "thread.create", kinds.index("broker.loop_stop")
+    )
+    chain = []
+    error = lab.exception
+    while error is not None:
+        chain.append((type(error).__name__, str(error)))
+        error = error.__context__
+    assert chain == expected
+
+
+def test_interrupted_restoration_still_closes_resources():
+    lab = (
+        Lab(
+            "restoration_base_exception",
+            faults=[("command:svc -d", 1, "value"), ("command:svc -u", 1, "base")],
+            must_restore=True,
+            restore_count=1,
+            cleanup_complete=True,
+            raised="KeyboardInterrupt",
+        )
+        .run()
+        .assert_safety()
+    )
+    assert str(lab.exception) == "command:svc -u"
+
+
+def test_existing_failure_propagates_after_successful_cleanup():
+    lab = (
+        Lab(
+            "report_failure_preserved",
+            faults=[("command:svc -d", 1, "value"), ("print:error", 1, "runtime")],
+            must_restore=True,
+            cleanup_complete=True,
+        )
+        .run()
+        .assert_safety()
+    )
+    assert (type(lab.exception).__name__, str(lab.exception)) == ("RuntimeError", "print:error")
+    assert (type(lab.exception.__context__).__name__, str(lab.exception.__context__)) == (
+        "ValueError",
+        "command:svc -d",
+    )
