@@ -21,28 +21,8 @@ def finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
-def validate_inventory(config, execute=False):
-    """Validate the complete, explicit lab contract before any connection."""
-    required = {
-        "schema_version",
-        "device_id",
-        "enabled",
-        "ssh_target",
-        "python",
-        "controller_root",
-        "controller_version",
-        "native_client_sha256",
-        "venus_firmware",
-        "identity",
-        "meter_service",
-        "allow_meter_loss",
-        "cleanup_allow",
-        "duration_seconds",
-        "reconnect_count",
-        "limits",
-    }
-    if set(config) != required or config["schema_version"] != 1:
-        raise ValueError("Inventory must have exactly the schema v1 fields")
+def _validate_device_fields(config):
+    """Validate the permitted device, paths and explicit authorization flags."""
     patterns = {
         "device_id": r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}",
         "ssh_target": r"[a-zA-Z0-9_.-]+@[a-zA-Z0-9][a-zA-Z0-9.-]*",
@@ -72,6 +52,10 @@ def validate_inventory(config, execute=False):
     for key in ("controller_version", "venus_firmware"):
         if not isinstance(config[key], str) or not config[key].strip():
             raise ValueError(f"Missing exact identity: {key}")
+
+
+def _validate_identity(config):
+    """Require the exact target, BMS and meter identity probes."""
     roles = {"target_product", "target_firmware", "bms_product", "bms_firmware", "meter_product"}
     probes = config["identity"]
     if not isinstance(probes, list) or len(probes) != 5 or {p["role"] for p in probes} != roles:
@@ -85,6 +69,10 @@ def validate_inventory(config, execute=False):
             probe["expected"], str
         ):
             raise ValueError("Invalid identity path/value")
+
+
+def _validate_run_limits(config):
+    """Keep cleanup scope, bounded duration and every numeric gate explicit."""
     if config["cleanup_allow"] not in ([], ["restore_meter_service"]):
         raise ValueError("Cleanup can only restore this run's stopped meter service")
     if (
@@ -108,6 +96,184 @@ def validate_inventory(config, execute=False):
         finite(v) and v > 0 for v in config["limits"].values()
     ):
         raise ValueError("Every gate needs a finite positive threshold")
+
+
+def _invalid_event_stream(events):
+    """Reject malformed events before reading sample fields."""
+    return not isinstance(events, list) or any(
+        not isinstance(event, dict)
+        or not isinstance(event.get("kind"), str)
+        or (not finite(event.get("t")))
+        or (event["t"] < 0)
+        for event in events
+    )
+
+
+def _evaluate_timing(config, limits, samples, result, errors):
+    """Record sampling coverage and detect non-monotonic or stale evidence."""
+    times = [s["t"] for s in samples]
+    duration = times[-1] - times[0]
+    gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
+    result.update(duration_seconds=duration, samples=len(samples), max_sample_gap=max(gaps))
+    if (
+        duration < config["duration_seconds"]
+        or min(gaps) <= 0
+        or max(gaps) > limits["sample_gap_seconds"]
+    ):
+        errors.append("soak duration/monotonic freshness gate failed (possible event-loop wedge)")
+    return times, duration
+
+
+def _evaluate_controller_liveness(samples, duration, limits, errors):
+    """Require advancing uptime and live controller execution."""
+    states = [s["state"] for s in samples]
+    uptimes = [s.get("uptime") for s in states]
+    if (
+        not all(finite(u) for u in uptimes)
+        or any(b < a for a, b in zip(uptimes, uptimes[1:], strict=False))
+        or uptimes[-1] - uptimes[0] < duration - limits["sample_gap_seconds"]
+    ):
+        errors.append("controller restart or frozen uptime")
+    if any(s.get("dry_run") is not False for s in states):
+        errors.append("controller dry-run/missing execution identity")
+    return states
+
+
+def _invalid_metrics(metrics):
+    """Check performance object shapes before evaluating numeric thresholds."""
+    return any(
+        not isinstance(metric, dict)
+        or any(
+            not isinstance(metric.get(section, {}), dict) for section in ("cycle_ms", "setvalue_ms")
+        )
+        for metric in metrics
+    )
+
+
+def _evaluate_latency(metrics, limits, result, errors):
+    """Apply every rolling percentile threshold in its original order."""
+    for section, pct, limit in (
+        ("cycle_ms", "p95", "cycle_p95_ms"),
+        ("cycle_ms", "p99", "cycle_p99_ms"),
+        ("setvalue_ms", "p95", "write_p95_ms"),
+        ("setvalue_ms", "p99", "write_p99_ms"),
+    ):
+        values = [m.get(section, {}).get(pct) for m in metrics]
+        if not all(finite(v) and v >= 0 for v in values):
+            errors.append(f"missing/nonfinite {section}.{pct}")
+        else:
+            result[limit] = max(values)
+            if max(values) > limits[limit]:
+                errors.append(f"{limit} exceeded")
+
+
+def _evaluate_rss(metrics, limits, result, errors):
+    """Compare the median RSS of the first and last sampling windows."""
+    rss = [m.get("rss_mb") for m in metrics]
+    if not all(finite(v) and v > 0 for v in rss):
+        errors.append("RSS evidence missing")
+    else:
+        width = max(1, len(rss) // 10)
+        drift = statistics.median(rss[-width:]) - statistics.median(rss[:width])
+        result["rss_drift_mb"] = drift
+        if drift > limits["rss_drift_mb"]:
+            errors.append("RSS drift exceeded")
+
+
+def _evaluate_reconnects(config, events, limits, errors):
+    """Require the configured number of bounded successful reconnect probes."""
+    probes = [e for e in events if e["kind"] == "reconnect"]
+    if len(probes) != config["reconnect_count"] or any(
+        e.get("ok") is not True
+        or not finite(e.get("seconds"))
+        or not 0 <= e["seconds"] <= limits["probe_deadline_seconds"]
+        for e in probes
+    ):
+        errors.append("native client reconnect/wedge gate failed")
+
+
+def _evaluate_meter_recovery(samples, faults, cleanups, limits, result, errors):
+    """Check the healthy baseline, accepted zero deadline and restored meter."""
+    fault = faults[0]["t"]
+    before = [s for s in samples if s["t"] < fault]
+    accepted = [
+        s
+        for s in samples
+        if fault <= s["t"] < cleanups[0]["t"]
+        and s["state"].get("grid_control_valid") is False
+        and s["state"].get("grid_loss_zero_applied") is True
+        and s["state"].get("grid_loss_state") == "zero"
+    ]
+    if (
+        not before
+        or before[-1]["state"].get("grid_control_valid") is not True
+        or before[-1]["state"].get("grid_loss_zero_applied") is not False
+    ):
+        errors.append("meter was not healthy with cleared zero acknowledgement before fault")
+    if not accepted:
+        errors.append("no accepted zero during real meter loss")
+    else:
+        result["accepted_zero_seconds"] = accepted[0]["t"] - fault
+        if result["accepted_zero_seconds"] > limits["accepted_zero_seconds"]:
+            errors.append("accepted-zero deadline exceeded")
+    if not any(
+        s["t"] > cleanups[0]["t"] and s["state"].get("grid_control_valid") is True for s in samples
+    ):
+        errors.append("meter did not recover after cleanup")
+
+
+def _evaluate_meter_loss(samples, events, limits, result, errors):
+    """Require a real meter fault, accepted zero and verified recovery."""
+    faults = [e for e in events if e["kind"] == "meter_down"]
+    cleanups = [e for e in events if e["kind"] == "meter_restored"]
+    if len(faults) != 1 or len(cleanups) != 1 or cleanups[0].get("ok") is not True:
+        errors.append("real meter-loss or verified cleanup evidence missing")
+    else:
+        _evaluate_meter_recovery(samples, faults, cleanups, limits, result, errors)
+
+
+def _evaluate_preflight(config, events, times, errors):
+    """Match the measured preflight identity and its ordering to the inventory."""
+    preflights = [event for event in events if event["kind"] == "preflight"]
+    expected_identity = [{**probe, "observed": probe["expected"]} for probe in config["identity"]]
+    if (
+        len(preflights) != 1
+        or preflights[0].get("ok") is not True
+        or preflights[0].get("identity") != expected_identity
+        or any(
+            preflights[0].get(field) != config[field]
+            for field in ("controller_version", "native_client_sha256", "venus_firmware")
+        )
+        or preflights[0]["t"] > times[0]
+    ):
+        errors.append("identity preflight evidence missing or mismatched to inventory")
+
+
+def validate_inventory(config, execute=False):
+    """Validate the complete, explicit lab contract before any connection."""
+    required = {
+        "schema_version",
+        "device_id",
+        "enabled",
+        "ssh_target",
+        "python",
+        "controller_root",
+        "controller_version",
+        "native_client_sha256",
+        "venus_firmware",
+        "identity",
+        "meter_service",
+        "allow_meter_loss",
+        "cleanup_allow",
+        "duration_seconds",
+        "reconnect_count",
+        "limits",
+    }
+    if set(config) != required or config["schema_version"] != 1:
+        raise ValueError("Inventory must have exactly the schema v1 fields")
+    _validate_device_fields(config)
+    _validate_identity(config)
+    _validate_run_limits(config)
     if execute and (
         config["enabled"] is not True
         or config["allow_meter_loss"] is not True
@@ -130,13 +296,7 @@ def evaluate(config, events):
         "metric_scope": "maximum observed rolling-window percentile",
         "errors": errors,
     }
-    if not isinstance(events, list) or any(
-        not isinstance(event, dict)
-        or not isinstance(event.get("kind"), str)
-        or not finite(event.get("t"))
-        or event["t"] < 0
-        for event in events
-    ):
+    if _invalid_event_stream(events):
         errors.append("invalid event or nonfinite/negative monotonic timestamp")
         return result
     samples = [event for event in events if event["kind"] == "sample"]
@@ -146,111 +306,17 @@ def evaluate(config, events):
     if len(samples) < 100:
         errors.append("insufficient fresh samples")
         return result
-    times = [s["t"] for s in samples]
-    duration = times[-1] - times[0]
-    gaps = [b - a for a, b in zip(times, times[1:], strict=False)]
-    result.update(duration_seconds=duration, samples=len(samples), max_sample_gap=max(gaps))
-    if (
-        duration < config["duration_seconds"]
-        or min(gaps) <= 0
-        or max(gaps) > limits["sample_gap_seconds"]
-    ):
-        errors.append("soak duration/monotonic freshness gate failed (possible event-loop wedge)")
-    states = [s["state"] for s in samples]
-    uptimes = [s.get("uptime") for s in states]
-    if (
-        not all(finite(u) for u in uptimes)
-        or any(b < a for a, b in zip(uptimes, uptimes[1:], strict=False))
-        or uptimes[-1] - uptimes[0] < duration - limits["sample_gap_seconds"]
-    ):
-        errors.append("controller restart or frozen uptime")
-    if any(s.get("dry_run") is not False for s in states):
-        errors.append("controller dry-run/missing execution identity")
+    times, duration = _evaluate_timing(config, limits, samples, result, errors)
+    states = _evaluate_controller_liveness(samples, duration, limits, errors)
     metrics = [s.get("perf", {}) for s in states]
-    if any(
-        not isinstance(metric, dict)
-        or any(
-            not isinstance(metric.get(section, {}), dict) for section in ("cycle_ms", "setvalue_ms")
-        )
-        for metric in metrics
-    ):
+    if _invalid_metrics(metrics):
         errors.append("invalid performance evidence")
         return result
-    for section, pct, limit in (
-        ("cycle_ms", "p95", "cycle_p95_ms"),
-        ("cycle_ms", "p99", "cycle_p99_ms"),
-        ("setvalue_ms", "p95", "write_p95_ms"),
-        ("setvalue_ms", "p99", "write_p99_ms"),
-    ):
-        values = [m.get(section, {}).get(pct) for m in metrics]
-        if not all(finite(v) and v >= 0 for v in values):
-            errors.append(f"missing/nonfinite {section}.{pct}")
-        else:
-            result[limit] = max(values)
-            if max(values) > limits[limit]:
-                errors.append(f"{limit} exceeded")
-    rss = [m.get("rss_mb") for m in metrics]
-    if not all(finite(v) and v > 0 for v in rss):
-        errors.append("RSS evidence missing")
-    else:
-        width = max(1, len(rss) // 10)
-        drift = statistics.median(rss[-width:]) - statistics.median(rss[:width])
-        result["rss_drift_mb"] = drift
-        if drift > limits["rss_drift_mb"]:
-            errors.append("RSS drift exceeded")
-    probes = [e for e in events if e["kind"] == "reconnect"]
-    if len(probes) != config["reconnect_count"] or any(
-        e.get("ok") is not True
-        or not finite(e.get("seconds"))
-        or not 0 <= e["seconds"] <= limits["probe_deadline_seconds"]
-        for e in probes
-    ):
-        errors.append("native client reconnect/wedge gate failed")
-    faults = [e for e in events if e["kind"] == "meter_down"]
-    cleanups = [e for e in events if e["kind"] == "meter_restored"]
-    if len(faults) != 1 or len(cleanups) != 1 or cleanups[0].get("ok") is not True:
-        errors.append("real meter-loss or verified cleanup evidence missing")
-    else:
-        fault = faults[0]["t"]
-        before = [s for s in samples if s["t"] < fault]
-        accepted = [
-            s
-            for s in samples
-            if fault <= s["t"] < cleanups[0]["t"]
-            and s["state"].get("grid_control_valid") is False
-            and s["state"].get("grid_loss_zero_applied") is True
-            and s["state"].get("grid_loss_state") == "zero"
-        ]
-        if (
-            not before
-            or before[-1]["state"].get("grid_control_valid") is not True
-            or before[-1]["state"].get("grid_loss_zero_applied") is not False
-        ):
-            errors.append("meter was not healthy with cleared zero acknowledgement before fault")
-        if not accepted:
-            errors.append("no accepted zero during real meter loss")
-        else:
-            result["accepted_zero_seconds"] = accepted[0]["t"] - fault
-            if result["accepted_zero_seconds"] > limits["accepted_zero_seconds"]:
-                errors.append("accepted-zero deadline exceeded")
-        if not any(
-            s["t"] > cleanups[0]["t"] and s["state"].get("grid_control_valid") is True
-            for s in samples
-        ):
-            errors.append("meter did not recover after cleanup")
-    preflights = [event for event in events if event["kind"] == "preflight"]
-    expected_identity = [{**probe, "observed": probe["expected"]} for probe in config["identity"]]
-    if (
-        len(preflights) != 1
-        or preflights[0].get("ok") is not True
-        or preflights[0].get("identity") != expected_identity
-        or any(
-            preflights[0].get(field) != config[field]
-            for field in ("controller_version", "native_client_sha256", "venus_firmware")
-        )
-        or preflights[0]["t"] > times[0]
-    ):
-        errors.append("identity preflight evidence missing or mismatched to inventory")
+    _evaluate_latency(metrics, limits, result, errors)
+    _evaluate_rss(metrics, limits, result, errors)
+    _evaluate_reconnects(config, events, limits, errors)
+    _evaluate_meter_loss(samples, events, limits, result, errors)
+    _evaluate_preflight(config, events, times, errors)
     if any(e["kind"] == "error" for e in events):
         errors.append("runner error")
     result["passed"] = not errors
