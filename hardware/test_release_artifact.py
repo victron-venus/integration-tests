@@ -5,15 +5,36 @@ import hashlib
 import io
 import json
 import tarfile
+from types import SimpleNamespace
 
 import pytest
 
 from hardware.device_runner import _identity_text, validate_release_artifact, verify_release_files
-from hardware.release_artifact import bind_release
+from hardware.release_artifact import bind_release, pinned_bytes
 
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def test_release_read_remains_bounded_when_input_grows_after_stat():
+    reads = []
+
+    class GrowingInput(io.BytesIO):
+        def read(self, size):
+            reads.append(size)
+            return super().read(size)
+
+    path = SimpleNamespace(
+        is_symlink=lambda: False,
+        is_file=lambda: True,
+        stat=lambda: SimpleNamespace(st_size=0),
+        open=lambda mode: GrowingInput(b"0123456789"),
+    )
+    expected = sha(b"0123456789")
+    with pytest.raises(ValueError, match="size limit"):
+        pinned_bytes(path, expected, 4)
+    assert reads == [5]
 
 
 @pytest.fixture

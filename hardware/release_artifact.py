@@ -20,7 +20,10 @@ def pinned_bytes(path, expected, maximum):
         raise ValueError("An independent SHA-256 pin is required")
     if path.is_symlink() or not path.is_file() or path.stat().st_size > maximum:
         raise ValueError("Release input must be a bounded regular file")
-    data = path.read_bytes()
+    with path.open("rb") as source:
+        data = source.read(maximum + 1)
+    if len(data) > maximum:
+        raise ValueError("Release input exceeds size limit")
     if hashlib.sha256(data).hexdigest() != expected:
         raise ValueError("Release input does not match its independent SHA-256 pin")
     return data
