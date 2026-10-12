@@ -7,7 +7,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -391,6 +391,9 @@ def test_preflight_producer_matches_gate_contract(
     firmware.write_text(config["venus_firmware"])
     files = {"/data/inverter-control": root, "/opt/victronenergy/version": firmware}
     monkeypatch.setattr(device_runner, "Path", files.__getitem__)
+    # An integral synthetic epoch avoids subtractive rounding at the exact
+    # one-hour gate when sample timestamps are shifted to the preflight epoch.
+    monkeypatch.setattr(device_runner, "time", SimpleNamespace(monotonic=lambda: 1000.0))
     monkeypatch.setattr(sys, "path", list(sys.path))
     monkeypatch.setattr(device_runner.signal, "signal", Mock())
     supervised = Mock(return_value=True)
@@ -434,4 +437,5 @@ def test_preflight_producer_matches_gate_contract(
     events = [preflight] + [
         {**event, "t": event["t"] + offset} for event in evidence if event["kind"] != "preflight"
     ]
-    assert evaluate(config, events)["passed"] is True
+    result = evaluate(config, events)
+    assert result["passed"] is True, result["errors"]

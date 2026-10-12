@@ -276,6 +276,12 @@ class Lab:
             def is_file(self):
                 return self.value in lab.files
 
+            def resolve(self, strict=False):
+                return self
+
+            def is_relative_to(self, other):
+                return PurePosixPath(self.value).is_relative_to(PurePosixPath(other.value))
+
             def open(self, mode):
                 assert mode == "rb"
                 return io.BytesIO(self.read_bytes())

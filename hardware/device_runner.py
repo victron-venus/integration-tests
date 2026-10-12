@@ -46,7 +46,12 @@ def validate_release_artifact(artifact):
             or re.fullmatch(rf"[0-9a-f]{{{length}}}", artifact[key]) is None
         ):
             raise ValueError("Invalid release artifact digest")
-    files = artifact["files"]
+    _validate_release_files(artifact["files"])
+    return artifact
+
+
+def _validate_release_files(files):
+    """Validate each relative payload name before joining it to a selected root."""
     if not isinstance(files, dict) or not 3 <= len(files) <= 4096:
         raise ValueError("Release payload file manifest is missing or too large")
     for name, digest in files.items():
@@ -61,7 +66,6 @@ def validate_release_artifact(artifact):
             or re.fullmatch(r"[0-9a-f]{64}", digest) is None
         ):
             raise ValueError("Invalid release payload path or digest")
-    return artifact
 
 
 def _payload_digest(path):
@@ -77,18 +81,31 @@ def _payload_digest(path):
     return result.hexdigest()
 
 
+def _identity_text(path):
+    """Read small version markers without trusting an installed file's size."""
+    with path.open("rb") as source:
+        raw = source.read(4097)
+    if len(raw) > 4096:
+        raise ValueError("Identity file exceeds size limit")
+    return raw.decode("utf-8").strip()
+
+
 def verify_release_files(root, artifact):
     """Compare distributed bytes without importing, installing or modifying them."""
     validate_release_artifact(artifact)
     if root.is_symlink():
         raise ValueError("Release payload root must not be a symlink")
+    selected_root = root.resolve(strict=True)
     for name, digest in artifact["files"].items():
         path = root
         for part in name.split("/"):
             path = path / part
             if path.is_symlink():
                 raise ValueError("Release payload contains a symlink")
-        if not path.is_file() or _payload_digest(path) != digest:
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(selected_root):
+            raise ValueError("Release payload escapes the selected root")
+        if not resolved.is_file() or _payload_digest(resolved) != digest:
             raise ValueError("Installed release payload mismatch: " + name)
     return hashlib.sha256(
         json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode()
@@ -357,12 +374,13 @@ def validate_inventory(config, execute=False):
     if set(config) != required or config["schema_version"] != 2:
         raise ValueError("Inventory must have exactly the schema v2 fields")
     artifact = validate_release_artifact(config["release_artifact"])
+    native_path = "inverter_control/dbus_native.py"
     if (
         artifact["repository"] != "victron-venus/inverter-control"
-        or not {"version", "main.py", "inverter_control/dbus_native.py"} <= artifact["files"].keys()
+        or not {"version", "main.py", native_path} <= artifact["files"].keys()
     ):
         raise ValueError("Cerbo scenario requires the complete controller release payload")
-    if artifact["files"]["inverter_control/dbus_native.py"] != config["native_client_sha256"]:
+    if artifact["files"][native_path] != config["native_client_sha256"]:
         raise ValueError("Native client must match the release payload")
     _validate_device_fields(config)
     _validate_identity(config)
@@ -632,16 +650,13 @@ def run_device(config, preflight_only=False):
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)
     root = Path("/data/inverter-control")
-    if (root / "version").read_text().strip() != config["controller_version"]:
-        raise ValueError("Controller version mismatch")
-    if (
-        hashlib.sha256((root / "inverter_control/dbus_native.py").read_bytes()).hexdigest()
-        != config["native_client_sha256"]
-    ):
-        raise ValueError("Native client source hash mismatch")
-    if Path("/opt/victronenergy/version").read_text().strip() != config["venus_firmware"]:
-        raise ValueError("Venus firmware mismatch")
     verify_release_files(root, config["release_artifact"])
+    if _identity_text(root / "version") != config["controller_version"]:
+        raise ValueError("Controller version mismatch")
+    if _payload_digest(root / "inverter_control/dbus_native.py") != config["native_client_sha256"]:
+        raise ValueError("Native client source hash mismatch")
+    if _identity_text(Path("/opt/victronenergy/version")) != config["venus_firmware"]:
+        raise ValueError("Venus firmware mismatch")
     sys.path.insert(0, str(root))
     import paho.mqtt.client as mqtt  # noqa: PLC0415
     from inverter_control.dbus_native import NativeDbusClient  # noqa: PLC0415

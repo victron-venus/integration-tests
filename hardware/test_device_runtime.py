@@ -10,7 +10,10 @@ from hardware._device_runtime import CASES, TEXT, Lab
 EXPECTED_OUTCOMES = {
     "healthy": {"return": 0},
     "preflight": {"return": 0},
-    "identity_file": {"error": "ValueError", "message": "Controller version mismatch"},
+    "identity_file": {
+        "error": "ValueError",
+        "message": "Installed release payload mismatch: version",
+    },
     "identity_probe": {"return": 1},
     "queue_empty": {"return": 1},
     "queue_stale": {"return": 1},
@@ -68,6 +71,37 @@ def test_changed_release_payload_after_collection_cannot_qualify():
     lab = Lab("changed_payload", changed_payload_after_collection=True).run().assert_safety()
     assert lab.outcome == {"return": 1}
     assert any("payload mismatch" in event.get("message", "") for event in lab.events)
+
+
+def test_payload_verification_precedes_legacy_identity_reads():
+    lab = Lab("payload_before_identity")
+    # The old version reader decoded this before validating distributed bytes.
+    lab.files["/data/inverter-control/version"] = b"\xff"
+    lab.run().assert_safety()
+    assert lab.outcome == {
+        "error": "ValueError",
+        "message": "Installed release payload mismatch: version",
+    }
+
+
+@pytest.mark.parametrize("name", ["version", "inverter_control/dbus_native.py"])
+def test_oversized_initial_payload_fails_before_device_imports(name):
+    lab = Lab("oversized_initial_payload")
+    lab.files["/data/inverter-control/" + name] = b"x" * (8 * 1024 * 1024 + 1)
+    lab.run().assert_safety()
+    assert lab.outcome == {
+        "error": "ValueError",
+        "message": "Installed release payload file exceeds size limit",
+    }
+    assert not any(row[0] in {"import", "command"} for row in lab.trace)
+
+
+def test_oversized_firmware_marker_fails_before_device_imports():
+    lab = Lab("oversized_firmware_marker")
+    lab.files["/opt/victronenergy/version"] = b"x" * 4097
+    lab.run().assert_safety()
+    assert lab.outcome == {"error": "ValueError", "message": "Identity file exceeds size limit"}
+    assert not any(row[0] in {"import", "command"} for row in lab.trace)
 
 
 def test_journal_failure_requires_prior_fault_ownership():

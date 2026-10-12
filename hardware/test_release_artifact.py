@@ -8,7 +8,7 @@ import tarfile
 
 import pytest
 
-from hardware.device_runner import validate_release_artifact, verify_release_files
+from hardware.device_runner import _identity_text, validate_release_artifact, verify_release_files
 from hardware.release_artifact import bind_release
 
 
@@ -118,6 +118,37 @@ def test_oversized_installed_file_is_bounded(released):
         verify_release_files(root, artifact)
 
 
+def test_identity_marker_limit_and_valid_utf8(tmp_path):
+    marker = tmp_path / "version"
+    marker.write_text("v3.75\n", encoding="utf-8")
+    assert _identity_text(marker) == "v3.75"
+    marker.write_bytes(b"x" * 4096)
+    assert len(_identity_text(marker)) == 4096
+    with marker.open("wb") as source:
+        source.truncate(8 * 1024 * 1024)
+    with pytest.raises(ValueError, match="Identity file exceeds size limit"):
+        _identity_text(marker)
+
+
+def test_operator_selected_absolute_root_does_not_depend_on_cwd(released, tmp_path, monkeypatch):
+    arguments, root = released
+    artifact = bind_release(*arguments)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert len(verify_release_files(root, artifact)) == 64
+
+
+def test_payload_directory_symlink_cannot_escape_selected_root(released, tmp_path):
+    arguments, root = released
+    artifact = bind_release(*arguments)
+    outside = tmp_path / "external-code"
+    (root / "inverter_control").rename(outside)
+    (root / "inverter_control").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        verify_release_files(root, artifact)
+
+
 @pytest.mark.parametrize(
     "name,kind",
     [
@@ -141,5 +172,6 @@ def test_archive_traversal_links_and_duplicate_entries_are_rejected(released, na
     metadata = json.loads(manifest.read_text())
     metadata["assets"][0].update(size=archive.stat().st_size, sha256=sha(archive.read_bytes()))
     manifest.write_text(json.dumps(metadata))
+    archive_pin, manifest_pin = sha(archive.read_bytes()), sha(manifest.read_bytes())
     with pytest.raises(ValueError, match="archive entry|payload files"):
-        bind_release(archive, manifest, sha(archive.read_bytes()), sha(manifest.read_bytes()), tag)
+        bind_release(archive, manifest, archive_pin, manifest_pin, tag)

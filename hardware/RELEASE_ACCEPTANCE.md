@@ -29,7 +29,8 @@ python3 -m hardware.release_artifact \
 
 The same command supports the inverter-climate SetupHelper `.tar.gz`. An optional
 `--verify-root /path/to/already-unpacked-package-root` compares a local distribution
-without installing it. This is a payload comparison, not a running-process,
+without installing it. All resolved payload paths must stay beneath that selected
+root, and symlink entries are rejected. This is a payload comparison, not a running-process,
 dependency, firmware ABI or thermostat qualification.
 
 Stable releases can promote the exact RC bytes. In that case the release

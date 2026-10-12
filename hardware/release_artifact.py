@@ -42,7 +42,22 @@ def bind_release(archive, manifest, archive_sha256, manifest_sha256, release_tag
         or assets[0].get("size") != len(raw)
     ):
         raise ValueError("Release manifest does not bind the exact archive")
-    prefix = repository.split("/")[1]
+    files = _archive_payload(raw, repository.split("/")[1])
+    artifact = {
+        "repository": repository,
+        "release_tag": release_tag,
+        "build_tag": metadata["tag"],
+        "source_sha": metadata["source_sha"],
+        "manifest_sha256": manifest_sha256,
+        "asset_name": archive.name,
+        "asset_sha256": archive_sha256,
+        "files": dict(sorted(files.items())),
+    }
+    return validate_release_artifact(artifact)
+
+
+def _archive_payload(raw, prefix):
+    """Hash bounded regular entries without extracting archive-controlled paths."""
     files, names, total = {}, set(), 0
     with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as package:
         for member in package:
@@ -73,17 +88,7 @@ def bind_release(archive, manifest, archive_sha256, manifest_sha256, release_tag
             if len(content) != member.size:
                 raise ValueError("Truncated release payload")
             files[name] = hashlib.sha256(content).hexdigest()
-    artifact = {
-        "repository": repository,
-        "release_tag": release_tag,
-        "build_tag": metadata["tag"],
-        "source_sha": metadata["source_sha"],
-        "manifest_sha256": manifest_sha256,
-        "asset_name": archive.name,
-        "asset_sha256": archive_sha256,
-        "files": dict(sorted(files.items())),
-    }
-    return validate_release_artifact(artifact)
+    return files
 
 
 def main(argv=None):
