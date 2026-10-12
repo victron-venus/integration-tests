@@ -13,6 +13,7 @@ import ast
 import builtins
 import copy
 import hashlib
+import io
 import json
 import math
 import queue
@@ -187,6 +188,12 @@ class Lab:
             "/data/inverter-control/version": self.config["controller_version"].encode(),
             "/data/inverter-control/inverter_control/dbus_native.py": b"synthetic native source",
             "/opt/victronenergy/version": self.config["venus_firmware"].encode(),
+            "/data/inverter-control/main.py": b"# synthetic main",
+        }
+        self.config["release_artifact"]["files"] = {
+            path.removeprefix("/data/inverter-control/"): hashlib.sha256(data).hexdigest()
+            for path, data in self.files.items()
+            if path.startswith("/data/inverter-control/")
         }
         if options.get("identity_file"):
             self.files["/data/inverter-control/version"] = b"wrong version"
@@ -262,6 +269,22 @@ class Lab:
 
             def __str__(self):
                 return self.value
+
+            def is_symlink(self):
+                return False
+
+            def is_file(self):
+                return self.value in lab.files
+
+            def resolve(self, strict=False):
+                return self
+
+            def is_relative_to(self, other):
+                return PurePosixPath(self.value).is_relative_to(PurePosixPath(other.value))
+
+            def open(self, mode):
+                assert mode == "rb"
+                return io.BytesIO(self.read_bytes())
 
             def read_bytes(self):
                 lab.log("path.read", self.value)
@@ -346,6 +369,8 @@ class Lab:
             def disconnect(self):
                 lab.log(BROKER_DISCONNECT)
                 lab.point(BROKER_DISCONNECT)
+                if lab.options.get("changed_payload_after_collection"):
+                    lab.files["/data/inverter-control/main.py"] = b"changed after collection"
 
             def loop_stop(self):
                 lab.log(BROKER_LOOP_STOP)

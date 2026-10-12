@@ -3,6 +3,13 @@
 The Ubuntu Docker matrix does not qualify hardware. This runner is opt-in and
 has no enabled device inventory. Its default is an offline plan, never SSH.
 
+Inventory schema v2 also requires an exact release artifact binding. Follow
+[release acceptance](RELEASE_ACCEPTANCE.md) to generate it from independently
+pinned package and release-manifest bytes. The runner compares every distributed
+file before importing the native client and again after the scenario; a matching
+version and native-client hash alone cannot qualify modified controller code.
+Old schema v1 inventories must be reviewed and migrated before execution.
+
 Run its negative gate tests with `python3 -m pytest hardware/`. Copy
 `inventory.example.json` to `/etc/victron-lab/` (or under `hardware/` for a local dry-run) and review every identity and
 threshold with the lab operator. The example numbers are initial gate targets,

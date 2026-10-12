@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "device_id": "cerbo-lab-example",
   "enabled": false,
   "ssh_target": "root@cerbo-lab.example.invalid",
@@ -54,5 +54,19 @@
     "sample_gap_seconds": 15,
     "probe_deadline_seconds": 10,
     "accepted_zero_seconds": 15
+  },
+  "release_artifact": {
+    "repository": "victron-venus/inverter-control",
+    "release_tag": "REPLACE_WITH_REVIEWED_RELEASE",
+    "build_tag": "REPLACE_WITH_MANIFEST_TAG",
+    "source_sha": "0000000000000000000000000000000000000000",
+    "manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "asset_name": "REPLACE_WITH_RELEASE.tar.gz",
+    "asset_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "files": {
+      "version": "0000000000000000000000000000000000000000000000000000000000000000",
+      "main.py": "0000000000000000000000000000000000000000000000000000000000000000",
+      "inverter_control/dbus_native.py": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
   }
 }

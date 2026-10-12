@@ -159,3 +159,10 @@ Run the mock-only profile as before, or use `docker-compose.ci.yml` with a local
 See [CONTRIBUTING.md](CONTRIBUTING.md) for reports, development checks and pull requests,
 [SECURITY.md](SECURITY.md) for private vulnerability reporting and deployment trust boundaries,
 and the [OpenSSF evidence index](docs/openssf-evidence.md) for assessment references and remaining verification.
+
+## Physical release acceptance
+
+Physical testing is separate: see the [opt-in Cerbo runner](hardware/README.md)
+and [release artifact/target acceptance contract](hardware/RELEASE_ACCEPTANCE.md).
+The offline plan, unit tests and Docker matrix never qualify a physical device
+or thermostat, even when all hosted jobs are green.
