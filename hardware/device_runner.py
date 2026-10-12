@@ -16,6 +16,72 @@ import time
 from pathlib import Path
 
 
+def validate_release_artifact(artifact):
+    """Require a complete, bounded release payload identity, never a version alone."""
+    fields = {
+        "repository",
+        "release_tag",
+        "build_tag",
+        "source_sha",
+        "manifest_sha256",
+        "asset_name",
+        "asset_sha256",
+        "files",
+    }
+    if not isinstance(artifact, dict) or set(artifact) != fields:
+        raise ValueError("Missing exact release artifact binding")
+    if artifact["repository"] not in {
+        "victron-venus/inverter-control",
+        "victron-venus/inverter-climate",
+    }:
+        raise ValueError("Unsupported artifact repository")
+    for key in ("release_tag", "build_tag", "asset_name"):
+        if not isinstance(artifact[key], str) or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]{0,150}", artifact[key]
+        ):
+            raise ValueError("Invalid release artifact identity")
+    for key, length in (("source_sha", 40), ("manifest_sha256", 64), ("asset_sha256", 64)):
+        if (
+            not isinstance(artifact[key], str)
+            or re.fullmatch(rf"[0-9a-f]{{{length}}}", artifact[key]) is None
+        ):
+            raise ValueError("Invalid release artifact digest")
+    files = artifact["files"]
+    if not isinstance(files, dict) or not 3 <= len(files) <= 4096:
+        raise ValueError("Release payload file manifest is missing or too large")
+    for name, digest in files.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or len(name) > 512
+            or name.startswith("/")
+            or "\\" in name
+            or any(part in {"", ".", ".."} for part in name.split("/"))
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise ValueError("Invalid release payload path or digest")
+    return artifact
+
+
+def verify_release_files(root, artifact):
+    """Compare distributed bytes without importing, installing or modifying them."""
+    validate_release_artifact(artifact)
+    if root.is_symlink():
+        raise ValueError("Release payload root must not be a symlink")
+    for name, digest in artifact["files"].items():
+        path = root
+        for part in name.split("/"):
+            path = path / part
+            if path.is_symlink():
+                raise ValueError("Release payload contains a symlink")
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise ValueError("Installed release payload mismatch: " + name)
+    return hashlib.sha256(
+        json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def finite(value):
     """Booleans, nulls and NaN are not measured numbers."""
     return type(value) in (int, float) and math.isfinite(value)
@@ -242,7 +308,12 @@ def _evaluate_preflight(config, events, times, errors):
         or preflights[0].get("identity") != expected_identity
         or any(
             preflights[0].get(field) != config[field]
-            for field in ("controller_version", "native_client_sha256", "venus_firmware")
+            for field in (
+                "controller_version",
+                "native_client_sha256",
+                "venus_firmware",
+                "release_artifact",
+            )
         )
         or preflights[0]["t"] > times[0]
     ):
@@ -260,6 +331,7 @@ def validate_inventory(config, execute=False):
         "controller_root",
         "controller_version",
         "native_client_sha256",
+        "release_artifact",
         "venus_firmware",
         "identity",
         "meter_service",
@@ -269,8 +341,16 @@ def validate_inventory(config, execute=False):
         "reconnect_count",
         "limits",
     }
-    if set(config) != required or config["schema_version"] != 1:
-        raise ValueError("Inventory must have exactly the schema v1 fields")
+    if set(config) != required or config["schema_version"] != 2:
+        raise ValueError("Inventory must have exactly the schema v2 fields")
+    artifact = validate_release_artifact(config["release_artifact"])
+    if (
+        artifact["repository"] != "victron-venus/inverter-control"
+        or not {"version", "main.py", "inverter_control/dbus_native.py"} <= artifact["files"].keys()
+    ):
+        raise ValueError("Cerbo scenario requires the complete controller release payload")
+    if artifact["files"]["inverter_control/dbus_native.py"] != config["native_client_sha256"]:
+        raise ValueError("Native client must match the release payload")
     _validate_device_fields(config)
     _validate_identity(config)
     _validate_run_limits(config)
@@ -418,6 +498,7 @@ def _observe_device(config, client, emit):
         controller_version=config["controller_version"],
         native_client_sha256=config["native_client_sha256"],
         venus_firmware=config["venus_firmware"],
+        release_artifact=config["release_artifact"],
     )
 
 
@@ -547,6 +628,7 @@ def run_device(config, preflight_only=False):
         raise ValueError("Native client source hash mismatch")
     if Path("/opt/victronenergy/version").read_text().strip() != config["venus_firmware"]:
         raise ValueError("Venus firmware mismatch")
+    verify_release_files(root, config["release_artifact"])
     sys.path.insert(0, str(root))
     import paho.mqtt.client as mqtt  # noqa: PLC0415
     from inverter_control.dbus_native import NativeDbusClient  # noqa: PLC0415
@@ -590,6 +672,10 @@ def run_device(config, preflight_only=False):
                 finally:
                     if not bounded_close(client):
                         emit("error", error="TimeoutError", message="Native client close wedged")
+    try:
+        verify_release_files(root, config["release_artifact"])
+    except (OSError, ValueError) as error:
+        emit("error", error=type(error).__name__, message=str(error))
     result = evaluate(config, events)
     emit("result", **result)
     return 0 if result["passed"] else 1

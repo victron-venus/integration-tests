@@ -64,6 +64,12 @@ def test_offline_device_lifecycle(name, options):
     assert lab.outcome == EXPECTED_OUTCOMES[name]
 
 
+def test_changed_release_payload_after_collection_cannot_qualify():
+    lab = Lab("changed_payload", changed_payload_after_collection=True).run().assert_safety()
+    assert lab.outcome == {"return": 1}
+    assert any("payload mismatch" in event.get("message", "") for event in lab.events)
+
+
 def test_journal_failure_requires_prior_fault_ownership():
     original = (
         '        ownership["attempted"] = True\n'

@@ -41,7 +41,12 @@ def evidence(inventory):
             ],
             **{
                 field: inventory[field]
-                for field in ("controller_version", "native_client_sha256", "venus_firmware")
+                for field in (
+                    "controller_version",
+                    "native_client_sha256",
+                    "venus_firmware",
+                    "release_artifact",
+                )
             },
         }
     ]
@@ -318,7 +323,14 @@ def test_invalid_event_clock_cannot_qualify(inventory, evidence, kind, timestamp
 
 
 @pytest.mark.parametrize(
-    "field", ["identity", "controller_version", "native_client_sha256", "venus_firmware"]
+    "field",
+    [
+        "identity",
+        "controller_version",
+        "native_client_sha256",
+        "venus_firmware",
+        "release_artifact",
+    ],
 )
 def test_preflight_must_match_inventory(inventory, evidence, field):
     """An ok flag from different hardware/source cannot qualify this inventory."""
@@ -369,6 +381,12 @@ def test_preflight_producer_matches_gate_contract(
     source = b"# offline producer contract fixture\n"
     (root / "inverter_control/dbus_native.py").write_bytes(source)
     config["native_client_sha256"] = hashlib.sha256(source).hexdigest()
+    (root / "main.py").write_bytes(b"# offline main\n")
+    config["release_artifact"]["files"] = {
+        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in root.rglob("*")
+        if p.is_file()
+    }
     firmware = tmp_path / "venus-version"
     firmware.write_text(config["venus_firmware"])
     files = {"/data/inverter-control": root, "/opt/victronenergy/version": firmware}
