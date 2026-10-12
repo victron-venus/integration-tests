@@ -4,6 +4,7 @@ No download, extraction, package import, installation or device command occurs.
 """
 
 import argparse
+import gzip
 import hashlib
 import io
 import json
@@ -12,6 +13,25 @@ import tarfile
 from pathlib import Path
 
 from hardware.device_runner import validate_release_artifact, verify_release_files
+
+MAX_EXPANDED_ARCHIVE = 128 * 1024 * 1024
+
+
+class _BoundedArchiveReader:
+    """Limit decompressed bytes before tarfile can allocate extended headers."""
+
+    def __init__(self, source, maximum):
+        self.source = source
+        self.maximum = maximum
+        self.total = 0
+
+    def read(self, size=-1):
+        remaining = self.maximum - self.total + 1
+        data = self.source.read(remaining if size < 0 else min(size, remaining))
+        self.total += len(data)
+        if self.total > self.maximum:
+            raise ValueError("Expanded release archive exceeds size limit")
+        return data
 
 
 def pinned_bytes(path, expected, maximum):
@@ -62,7 +82,14 @@ def bind_release(archive, manifest, archive_sha256, manifest_sha256, release_tag
 def _archive_payload(raw, prefix):
     """Hash bounded regular entries without extracting archive-controlled paths."""
     files, names, total = {}, set(), 0
-    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as package:
+    # PAX/GNU metadata is decoded inside tarfile before member iteration. Bound
+    # that input too, not just the compressed archive and yielded file payloads.
+    with (
+        gzip.GzipFile(fileobj=io.BytesIO(raw)) as expanded,
+        tarfile.open(
+            fileobj=_BoundedArchiveReader(expanded, MAX_EXPANDED_ARCHIVE), mode="r|"
+        ) as package,
+    ):
         for member in package:
             parts = member.name.rstrip("/").split("/")
             canonical = "/".join(parts)
