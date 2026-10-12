@@ -9,12 +9,67 @@ from types import SimpleNamespace
 
 import pytest
 
+from hardware import release_artifact
 from hardware.device_runner import _identity_text, validate_release_artifact, verify_release_files
 from hardware.release_artifact import bind_release, pinned_bytes
 
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def test_expanded_reader_bounds_a_single_large_read():
+    reads = []
+
+    class RecordingInput(io.BytesIO):
+        def read(self, size=-1):
+            reads.append(size)
+            return super().read(size)
+
+    reader = release_artifact._BoundedArchiveReader(RecordingInput(b"x" * 20), 8)
+    with pytest.raises(ValueError, match="Expanded release archive"):
+        reader.read(10**9)
+    assert reads == [9]
+
+
+def test_expanded_reader_bounds_cumulative_reads_and_allows_exact_limit():
+    reader = release_artifact._BoundedArchiveReader(io.BytesIO(b"x" * 8), 8)
+    assert reader.read(3) == b"xxx"
+    assert reader.read() == b"xxxxx"
+    assert reader.read() == b""
+    reader = release_artifact._BoundedArchiveReader(io.BytesIO(b"x" * 9), 8)
+    assert reader.read(3) == b"xxx"
+    with pytest.raises(ValueError, match="Expanded release archive"):
+        reader.read(6)
+
+
+@pytest.mark.parametrize("format", [tarfile.PAX_FORMAT, tarfile.GNU_FORMAT])
+def test_compressed_extended_headers_cannot_bypass_expanded_limit(monkeypatch, format):
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w:gz", format=format) as package:
+        member = tarfile.TarInfo("inverter-control/version")
+        member.size = 1
+        if format == tarfile.PAX_FORMAT:
+            member.pax_headers = {"comment": "x" * 16384}
+        else:
+            member.name = "inverter-control/" + "x" * 16384
+        package.addfile(member, io.BytesIO(b"1"))
+    assert len(archive.getvalue()) < 1024
+    monkeypatch.setattr(release_artifact, "MAX_EXPANDED_ARCHIVE", 4096)
+    with pytest.raises(ValueError, match="Expanded release archive"):
+        release_artifact._archive_payload(archive.getvalue(), "inverter-control")
+
+
+def test_bounded_pax_metadata_keeps_original_payload_hash():
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w:gz", format=tarfile.PAX_FORMAT) as package:
+        member = tarfile.TarInfo("inverter-control/version")
+        member.size = 5
+        member.pax_headers = {"comment": "reviewed release", "mtime": "123.45"}
+        package.addfile(member, io.BytesIO(b"1.2.3"))
+    assert release_artifact._archive_payload(archive.getvalue(), "inverter-control") == {
+        "version": sha(b"1.2.3")
+    }
 
 
 def test_release_read_remains_bounded_when_input_grows_after_stat():
