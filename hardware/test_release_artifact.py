@@ -109,6 +109,15 @@ def test_symlink_cannot_substitute_external_code(released, tmp_path):
         verify_release_files(root, artifact)
 
 
+def test_oversized_installed_file_is_bounded(released):
+    arguments, root = released
+    artifact = bind_release(*arguments)
+    with (root / "main.py").open("wb") as source:
+        source.truncate(8 * 1024 * 1024 + 1)
+    with pytest.raises(ValueError, match="size limit"):
+        verify_release_files(root, artifact)
+
+
 @pytest.mark.parametrize(
     "name,kind",
     [

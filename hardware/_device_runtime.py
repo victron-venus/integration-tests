@@ -13,6 +13,7 @@ import ast
 import builtins
 import copy
 import hashlib
+import io
 import json
 import math
 import queue
@@ -274,6 +275,10 @@ class Lab:
 
             def is_file(self):
                 return self.value in lab.files
+
+            def open(self, mode):
+                assert mode == "rb"
+                return io.BytesIO(self.read_bytes())
 
             def read_bytes(self):
                 lab.log("path.read", self.value)

@@ -64,6 +64,19 @@ def validate_release_artifact(artifact):
     return artifact
 
 
+def _payload_digest(path):
+    """Bound memory and I/O even if an installed file has been replaced."""
+    result = hashlib.sha256()
+    total = 0
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(65536), b""):
+            total += len(chunk)
+            if total > 8 * 1024 * 1024:
+                raise ValueError("Installed release payload file exceeds size limit")
+            result.update(chunk)
+    return result.hexdigest()
+
+
 def verify_release_files(root, artifact):
     """Compare distributed bytes without importing, installing or modifying them."""
     validate_release_artifact(artifact)
@@ -75,7 +88,7 @@ def verify_release_files(root, artifact):
             path = path / part
             if path.is_symlink():
                 raise ValueError("Release payload contains a symlink")
-        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        if not path.is_file() or _payload_digest(path) != digest:
             raise ValueError("Installed release payload mismatch: " + name)
     return hashlib.sha256(
         json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode()
