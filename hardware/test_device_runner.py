@@ -7,7 +7,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -41,7 +41,12 @@ def evidence(inventory):
             ],
             **{
                 field: inventory[field]
-                for field in ("controller_version", "native_client_sha256", "venus_firmware")
+                for field in (
+                    "controller_version",
+                    "native_client_sha256",
+                    "venus_firmware",
+                    "release_artifact",
+                )
             },
         }
     ]
@@ -318,7 +323,14 @@ def test_invalid_event_clock_cannot_qualify(inventory, evidence, kind, timestamp
 
 
 @pytest.mark.parametrize(
-    "field", ["identity", "controller_version", "native_client_sha256", "venus_firmware"]
+    "field",
+    [
+        "identity",
+        "controller_version",
+        "native_client_sha256",
+        "venus_firmware",
+        "release_artifact",
+    ],
 )
 def test_preflight_must_match_inventory(inventory, evidence, field):
     """An ok flag from different hardware/source cannot qualify this inventory."""
@@ -369,10 +381,19 @@ def test_preflight_producer_matches_gate_contract(
     source = b"# offline producer contract fixture\n"
     (root / "inverter_control/dbus_native.py").write_bytes(source)
     config["native_client_sha256"] = hashlib.sha256(source).hexdigest()
+    (root / "main.py").write_bytes(b"# offline main\n")
+    config["release_artifact"]["files"] = {
+        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in root.rglob("*")
+        if p.is_file()
+    }
     firmware = tmp_path / "venus-version"
     firmware.write_text(config["venus_firmware"])
     files = {"/data/inverter-control": root, "/opt/victronenergy/version": firmware}
     monkeypatch.setattr(device_runner, "Path", files.__getitem__)
+    # An integral synthetic epoch avoids subtractive rounding at the exact
+    # one-hour gate when sample timestamps are shifted to the preflight epoch.
+    monkeypatch.setattr(device_runner, "time", SimpleNamespace(monotonic=lambda: 1000.0))
     monkeypatch.setattr(sys, "path", list(sys.path))
     monkeypatch.setattr(device_runner.signal, "signal", Mock())
     supervised = Mock(return_value=True)
@@ -416,4 +437,5 @@ def test_preflight_producer_matches_gate_contract(
     events = [preflight] + [
         {**event, "t": event["t"] + offset} for event in evidence if event["kind"] != "preflight"
     ]
-    assert evaluate(config, events)["passed"] is True
+    result = evaluate(config, events)
+    assert result["passed"] is True, result["errors"]
