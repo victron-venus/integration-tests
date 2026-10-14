@@ -22,3 +22,7 @@ release.txt
 
 reports/
 sources/
+
+.fuzz-venv/
+.fuzz-results/
+release-dist/

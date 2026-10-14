@@ -1,5 +1,7 @@
 # Integration Tests
 
+[![Fuzzing: RC only](https://img.shields.io/badge/Fuzzing-RC%20only-blue)](docs/fuzzing.md)
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/victron-venus/integration-tests/actions/workflows/integration.yml/badge.svg)](https://github.com/victron-venus/integration-tests/actions/workflows/integration.yml)
 [![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
@@ -19,7 +21,7 @@ Optional services (uncomment in `docker-compose.yml` when Dockerfiles exist):
 <!-- ci-release-process:start -->
 ## CI and deployment
 
-See [CI and deployment workflow](docs/release-workflow.md) for required checks and local commands. This repository uses validation-only policy; application release channels do not apply.
+See [CI and release operations](docs/release-workflow.md) for required checks and local commands. This repository publishes versioned source archives through beta and RC channels under the [release strategy](RELEASING.md). Public RCs also run the offline [fuzzing campaigns](docs/fuzzing.md).
 <!-- ci-release-process:end -->
 
 ## Architecture

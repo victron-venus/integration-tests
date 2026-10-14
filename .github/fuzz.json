@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "language": "python",
+  "setup": [
+    [
+      "python3",
+      "-m",
+      "venv",
+      ".fuzz-venv"
+    ],
+    [
+      ".fuzz-venv/bin/python",
+      "-m",
+      "pip",
+      "install",
+      "--require-hashes",
+      "--only-binary=:all:",
+      "-r",
+      ".github/requirements-fuzz.txt"
+    ]
+  ],
+  "targets": [
+    {
+      "name": "release-binding",
+      "engine": "atheris",
+      "command": [
+        ".fuzz-venv/bin/python",
+        "fuzz/fuzz_release_binding.py",
+        "-max_len=4096"
+      ],
+      "seconds": 60,
+      "corpus": "fuzz/corpus/release-binding"
+    },
+    {
+      "name": "release-archive",
+      "engine": "atheris",
+      "command": [
+        ".fuzz-venv/bin/python",
+        "fuzz/fuzz_release_archive.py",
+        "-max_len=4096"
+      ],
+      "seconds": 60,
+      "corpus": "fuzz/corpus/release-archive"
+    }
+  ]
+}

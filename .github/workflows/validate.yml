@@ -33,3 +33,6 @@ jobs:
           printf '%s\n' "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Run local checks
         run: bash scripts/ci.sh syntax
+
+      - name: Test pure release parsing without devices
+        run: python3 -m unittest hardware.test_offline_release_guards
