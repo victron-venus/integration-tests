@@ -77,6 +77,7 @@
     "scripts/change_scope.py",
     "scripts/ci.sh",
     "scripts/merge_oci_archives.py",
+    "scripts/package-release.sh",
     "scripts/package_source.py",
     "scripts/prepare_version.py",
     "scripts/release.py",

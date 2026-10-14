@@ -112,6 +112,16 @@ class SourceDistributionTests(unittest.TestCase):
         archive = package_source.build(self.root, "0.1.1", "rc", self.root / "output")
         package_source.verify(archive, self.root)
 
+    def test_shared_local_package_command_uses_source_adapter(self):
+        self.freeze("rc")
+        self.command(
+            sys.executable, "scripts/release.py", "package",
+            "--version", "0.1.1", "--channel", "rc",
+        )
+        archives = list((self.root / "release-dist").glob("*.tar.gz"))
+        self.assertEqual(len(archives), 1)
+        package_source.verify(archives[0], self.root)
+
     def test_archive_is_reproducible_and_excludes_local_state(self):
         self.freeze("beta")
         (self.root / "private").mkdir()
