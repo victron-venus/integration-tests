@@ -37,9 +37,10 @@ class OfflineReleaseGuards(unittest.TestCase):
                 info = tarfile.TarInfo(name)
                 info.size = 3
                 archive.addfile(info, io.BytesIO(b"1.0"))
+            payload = stream.getvalue()
             if ".." in name:
                 with self.assertRaises(ValueError):
-                    _archive_payload(stream.getvalue(), "inverter-control")
+                    _archive_payload(payload, "inverter-control")
             else:
-                self.assertEqual(_archive_payload(stream.getvalue(), "inverter-control"),
+                self.assertEqual(_archive_payload(payload, "inverter-control"),
                                  {"version": hashlib.sha256(b"1.0").hexdigest()})

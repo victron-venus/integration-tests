@@ -14,7 +14,7 @@ with atheris.instrument_imports():
 def test_one_input(data):
     try:
         value = json.loads(data)
-    except (ValueError, UnicodeError, RecursionError):
+    except (ValueError, RecursionError):
         return
     try:
         result = validate_release_artifact(value)
