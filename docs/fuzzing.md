@@ -36,3 +36,32 @@ or proof of hardware, firmware or deployed-system acceptance.
 `SOURCE_VERSION`, are checked after extraction in a temporary directory, and
 have frozen version receipts and checksums. See [RELEASING.md](../RELEASING.md)
 for the release procedure. Hardware qualification and deployment remain separate.
+
+
+## Deterministic preflight in ordinary CI
+
+For relevant changes in a public repository, the existing CI configuration
+contract job installs the hash-locked Python 3.12 fuzz dependencies, runs
+`pip check`, and replays the committed corpus with Atheris `-runs=0`.
+This is deterministic seed replay: it does not start the timed mutation
+campaign. Timed fuzzing remains exclusive to release candidates. The shared
+preflight has a four-minute total budget, including dependency setup.
+
+The `preflight-paths` entries in `.github/fuzz.json` select the relevant
+production, dependency and harness changes. Shared contract, manifest and
+workflow changes also trigger this check; missing comparison history runs
+the check conservatively. Unrelated changes can skip this extra replay.
+
+Before replay, the shared helper verifies that the following declarations
+refer to project-local Python functions already instrumented by the
+harness. Missing import instrumentation fails the check instead of
+silently counting executions with incomplete feedback:
+
+- `hardware.device_runner.validate_release_artifact`
+- `hardware.device_runner._validate_release_files`
+- `hardware.release_artifact._archive_payload`
+
+Update these declarations when production functions move or are renamed.
+They prove that the selected code is instrumented; they do not prove
+exhaustive path coverage. Keep positive and rejected-input corpus cases
+and independent semantic assertions alongside the existing unit tests.
