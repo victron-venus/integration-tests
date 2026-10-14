@@ -30,7 +30,7 @@ def validate_release_artifact(artifact):
     }
     if not isinstance(artifact, dict) or set(artifact) != fields:
         raise ValueError("Missing exact release artifact binding")
-    if artifact["repository"] not in {
+    if not isinstance(artifact["repository"], str) or artifact["repository"] not in {
         "victron-venus/inverter-control",
         "victron-venus/inverter-climate",
     }:
