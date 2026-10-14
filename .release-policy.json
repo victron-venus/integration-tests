@@ -25,7 +25,7 @@
   "versioning": {
     "schema": 1,
     "promotion": "promote-bytes",
-    "toolkit_revision": "8c0743a8db82adb291eee77cbe4d9bfd07218ee3",
+    "toolkit_revision": "21f8041a2a11a13367f49a37e624ac51ab8c4481",
     "files": [
       {
         "path": "SOURCE_VERSION",
@@ -50,6 +50,7 @@
     ]
   },
   "fuzzing": {
-    "toolkit_ref": "8c0743a8db82adb291eee77cbe4d9bfd07218ee3"
-  }
+    "toolkit_ref": "21f8041a2a11a13367f49a37e624ac51ab8c4481"
+  },
+  "toolkit_revision": "21f8041a2a11a13367f49a37e624ac51ab8c4481"
 }
