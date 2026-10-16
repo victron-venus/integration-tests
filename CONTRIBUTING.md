@@ -31,3 +31,16 @@ Automated tests use mocks or controlled fixtures where available. A passing unit
 - [hardware/README.md](hardware/README.md)
 
 See [README.md](README.md) for acquisition, configuration and usage, and [the evidence index](docs/openssf-evidence.md) for the public development-process references.
+
+## Style and project decisions
+
+Python follows PEP 8 and the checked-in lint configuration. Shell scripts use
+quoted arguments and explicit failure handling; YAML workflows use immutable
+third-party action references and least-privilege permissions. Resolve new
+compiler or linter warnings; document a narrow exception only with evidence.
+Contribute under the project's MIT license and retain third-party notices.
+
+Follow [GOVERNANCE.md](GOVERNANCE.md) for decisions and responsibilities and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for participation and private conduct
+reports. Major features require automated tests; fix bugs with a focused
+regression test where technically feasible and explain any exception in the PR.

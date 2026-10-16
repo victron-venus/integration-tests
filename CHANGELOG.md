@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Include pytest-asyncio in the offline contract environment so the shared
+  asyncio configuration is recognized without warnings.
+
+- Document governance, private conduct reporting, the maintained architecture and
+  assurance scope; link the official OpenSSF assessment from the README.
+- Clarify the 60-day fix policy for publicly known medium-or-higher vulnerabilities.
+
 ## [0.1.2] - 2026-10-14
 
 ### Changed
