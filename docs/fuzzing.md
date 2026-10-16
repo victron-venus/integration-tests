@@ -1,5 +1,9 @@
 # RC-only fuzz testing
 
+See the [illustrated RC fuzzing process and verified rollout results](https://github.com/victron-venus/venus-os-ci-toolkit/blob/main/docs/rc-fuzzing-results.md)
+for the shared release flow, evidence requirements and a dated cross-project
+snapshot. The project-specific scope and reproduction guidance below still apply.
+
 Targets exercise the actual in-memory TAR payload parser through its bounded gzip reader and pure release identity validator. They mutate synthetic archives and metadata, checking confined payload names and digests. No target calls SSH, installs a payload, executes device commands or starts a hardware qualification.
 
 Each target receives a 60-second mutation budget and at most 4,096 input bytes.
