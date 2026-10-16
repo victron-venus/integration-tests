@@ -1,10 +1,12 @@
 # Integration Tests
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15554/badge)](https://www.bestpractices.dev/en/projects/15554)
+
 [![Fuzzing: RC only](https://img.shields.io/badge/Fuzzing-RC%20only-blue)](docs/fuzzing.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![CI](https://github.com/victron-venus/integration-tests/actions/workflows/integration.yml/badge.svg)](https://github.com/victron-venus/integration-tests/actions/workflows/integration.yml)
-[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-supported-blue.svg)](https://www.docker.com/)
 
 Environment for testing the complete data flow:
@@ -84,7 +86,7 @@ docker compose down -v
 
 ## CI
 
-Runs on every push to `main`, every PR, and **daily at 04:00 UTC** via `.github/workflows/integration.yml`.
+The quality gate invokes `.github/workflows/integration.yml` for pull requests and release qualification. The integration workflow also supports explicit dispatch and reusable calls.
 
 Manual dispatch supported via GitHub Actions UI.
 
@@ -105,10 +107,10 @@ jobs:
 
 1. Repo **Settings → Branches → Branch protection rules** for `main`.
 2. Under **Status checks that are required**, add the check named:
-   - `integration-tests / integration` — for `workflow_call` consumers (recommended)
+   - `integration-tests / Integration Tests` — the final aggregate for a consumer job named `integration-tests`
 3. Enable **Require status checks to pass before merging**.
 
-> The job key is `integration`; its display name is `Integration Tests`. When called via `workflow_call`, GitHub surfaces the check as `<consumer-job-name> / integration` in branch protection.
+> The final aggregate job key is `integration-status`, with display name `Integration Tests`. Select the actual check reported by your reusable caller; the aggregate requires both dashboard variants and the hardware safety contracts.
 
 ### Artifacts
 
@@ -119,7 +121,7 @@ Each run uploads (retention: 7 days):
 
 ## Completed Features
 
-- ✅ **CI Execution & Security**: Scheduled daily runs, hardened runner, and GitHub Step Summary reporting configured
+- Hardened CI runners, isolated integration projects, and uploaded test reports.
 
 ## Debugging
 
@@ -168,3 +170,7 @@ Physical testing is separate: see the [opt-in Cerbo runner](hardware/README.md)
 and [release artifact/target acceptance contract](hardware/RELEASE_ACCEPTANCE.md).
 The offline plan, unit tests and Docker matrix never qualify a physical device
 or thermostat, even when all hosted jobs are green.
+
+See [governance](GOVERNANCE.md), [community conduct](CODE_OF_CONDUCT.md) and
+[the architecture, assurance scope and roadmap](docs/project-assurance.md).
+The live OpenSSF assessment reports the achieved level and remaining criteria.
