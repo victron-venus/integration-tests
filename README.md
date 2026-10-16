@@ -110,7 +110,7 @@ jobs:
    - `integration-tests / Integration Tests` — the final aggregate for a consumer job named `integration-tests`
 3. Enable **Require status checks to pass before merging**.
 
-> The job key is `integration`; its display name is `Integration Tests`. When called via `workflow_call`, GitHub surfaces the check as `<consumer-job-name> / integration` in branch protection.
+> The final aggregate job key is `integration-status`, with display name `Integration Tests`. Select the actual check reported by your reusable caller; the aggregate requires both dashboard variants and the hardware safety contracts.
 
 ### Artifacts
 
