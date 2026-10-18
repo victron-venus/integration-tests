@@ -1,13 +1,23 @@
 # Changelog
 
-## Unreleased
+## [0.1.3] - 2026-10-17
 
+- Keep the local package version in `uv.lock` synchronized through the release policy.
+- Synchronize the uv lock with the already declared websockets 17.2 dependency and check project dependencies against the runner pins in CI.
 - Include pytest-asyncio in the offline contract environment so the shared
   asyncio configuration is recognized without warnings.
 
 - Document governance, private conduct reporting, the maintained architecture and
   assurance scope; link the official OpenSSF assessment from the README.
 - Clarify the 60-day fix policy for publicly known medium-or-higher vulnerabilities.
+
+### Upgrade
+
+Extract the source suite into a separate directory and use its committed dependency locks. Preserve local configuration; production deployment and device acceptance remain separate.
+
+### Security
+
+The source and dependency-maintenance changes preserve the existing validation gates. No new application vulnerability fix or target-device acceptance is claimed.
 
 ## [0.1.2] - 2026-10-14
 

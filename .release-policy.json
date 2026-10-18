@@ -38,6 +38,13 @@
         "field": "project.version",
         "value": "package",
         "ecosystem": "pep440"
+      },
+      {
+        "path": "uv.lock",
+        "format": "uv-lock",
+        "value": "package",
+        "package": "integration-tests",
+        "ecosystem": "pep440"
       }
     ],
     "artifacts": [
