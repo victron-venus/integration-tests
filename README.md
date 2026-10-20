@@ -92,7 +92,7 @@ Manual dispatch supported via GitHub Actions UI.
 
 ### Reusable workflow (required status check)
 
-Consumer projects (`inverter-control`, `inverter-dashboard`, `inverter-dashboard-go`) call this via `workflow_call` and add the resulting job as a **required check** in their branch protection rules.
+To require this suite in a consumer project, reuse the workflow below and add the resulting job as a **required check** in the project's branch protection rules.
 
 #### Add to consumer workflow
 
@@ -100,8 +100,14 @@ Consumer projects (`inverter-control`, `inverter-dashboard`, `inverter-dashboard
 # .github/workflows/ci.yml
 jobs:
   integration-tests:
-    uses: victron-venus/integration-tests/.github/workflows/integration.yml@main
+    uses: victron-venus/integration-tests/.github/workflows/integration.yml@4716933607a6e45c9aa33c0a342ec370fd952a0c
+    with:
+      test-suite-ref: 4716933607a6e45c9aa33c0a342ec370fd952a0c
 ```
+
+Pin both references to the same full commit SHA so the workflow and test suite come from the same revision. Without `test-suite-ref`, calls from another repository check out the suite from `main`, even when `uses` is pinned.
+
+When updating, select a revision whose integration checks have passed and update both `uses` and `test-suite-ref` together.
 
 #### Set required check in branch protection
 
