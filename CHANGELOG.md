@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.5] - 2026-10-24
+
+### Changed
+
+- Publish the updated source suite with the patched uv 0.13.4 bootstrap in the
+  Python dashboard integration container and current release provenance checks.
+
+### Security
+
+- The included uv bootstrap no longer carries the distrusted
+  emSign ECC Root CA - G3 (GHSA-hq85-5cpj-mr62). Archive hashes remain verified before installation.
+  The suite continues to run isolated synthetic services; publishing it does not
+  deploy applications or establish physical-device acceptance.
+
+### Upgrade
+
+- Extract the new source suite into a separate directory and use the committed
+  dependency locks. Preserve local configuration and keep the previous version
+  available for rollback. No application-data migration is required.
+
 ## [0.1.4] - 2026-10-18
 
 ### Changed
