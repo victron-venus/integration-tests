@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6] - 2026-10-27
+
+### Changed
+
+- Refresh the synthetic device container base images and the locked WebSocket test client to 17.3.
+- Preserve the synthetic fixtures and the existing native architecture qualification gates.
+
 ## [0.1.5] - 2026-10-24
 
 ### Changed
