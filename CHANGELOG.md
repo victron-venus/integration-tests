@@ -7,6 +7,14 @@
 - Refresh the synthetic device container base images and the locked WebSocket test client to 17.3.
 - Preserve the synthetic fixtures and the existing native architecture qualification gates.
 
+### Upgrade
+
+Extract the new source suite into a separate directory and use its committed dependency locks and container definitions. Preserve local test configuration and keep the previous suite available for rollback. No application-data migration is required.
+
+### Security
+
+Run the suite against isolated synthetic services with test credentials. Updated images and the WebSocket client do not authorize production deployment or establish physical-device acceptance; retain the existing security and native architecture validation gates.
+
 ## [0.1.5] - 2026-10-24
 
 ### Changed
