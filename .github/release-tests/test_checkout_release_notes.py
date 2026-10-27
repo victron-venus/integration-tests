@@ -5,12 +5,13 @@ import hashlib
 import json
 import sys
 import unittest
+from importlib import import_module
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from scripts import release as client  # noqa: E402
-from scripts import release_control  # noqa: E402
+client = import_module("scripts.release")
+release_control = import_module("scripts.release_control")
 
 SOURCE = "a" * 40
 
