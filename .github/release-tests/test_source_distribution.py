@@ -30,6 +30,8 @@ class SourceDistributionTests(unittest.TestCase):
             shutil.copyfile(ROOT / name, target)
         shutil.copytree(ROOT / "scripts", self.root / "scripts", dirs_exist_ok=True)
         self.command("git", "init", "-q")
+        # Detached maintenance must not outlive this short-lived source fixture.
+        self.command("git", "config", "--local", "maintenance.auto", "false")
         self.command("git", "add", ".")
         self.command(
             "git",
