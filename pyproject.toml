@@ -6,7 +6,7 @@ dependencies = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.1",
     "paho-mqtt>=2.1.0",
-    "websockets>=17.3",
+    "websockets>=17.4",
 ]
 
 [tool.pytest.ini_options]
