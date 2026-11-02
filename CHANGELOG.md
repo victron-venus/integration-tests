@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.7] - 2026-11-02
+
+### Changed
+
+- Update the synthetic battery, D-Bus and photovoltaic device containers to the
+  official Python 3.15.2 image, pinned by its multi-platform digest.
+- Keep the existing isolated Python and Go integration scenarios and required
+  dependency, CodeQL and workflow validation checks.
+
+### Upgrade
+
+Extract the new source suite into a separate directory and use its committed
+container definitions and dependency locks. Preserve local test configuration.
+No application-data migration is required.
+
+### Security
+
+This release refreshes the interpreter patch version used by synthetic device
+containers. Run the suite with isolated services and test credentials; publishing
+these source artifacts does not deploy applications or establish physical-device
+acceptance.
+
 ## [0.1.6] - 2026-10-27
 
 ### Changed
