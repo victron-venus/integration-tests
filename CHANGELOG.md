@@ -6,6 +6,10 @@
 
 - Update the synthetic battery, D-Bus and photovoltaic device containers to the
   official Python 3.15.2 image, pinned by its multi-platform digest.
+- Update the test runner to pytest 9.2.0 and websockets 17.4, keeping the project
+  and hashed runner dependency locks synchronized.
+- Restore the conditional typing-extensions dependency needed by pytest-asyncio
+  on Python 3.11/3.12, and check the hashed lock on Python 3.11 and 3.15 in CI.
 - Keep the existing isolated Python and Go integration scenarios and required
   dependency, CodeQL and workflow validation checks.
 
