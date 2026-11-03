@@ -36,6 +36,7 @@
     "docs/openssf-evidence.md",
     "docs/project-assurance.md",
     "docs/rc-fuzzing.md",
+    "docs/release-read-safety.md",
     "docs/release-tls-profile.md",
     "docs/release-workflow.md",
     "docs/runner-preflight.md",
