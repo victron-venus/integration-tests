@@ -1,3 +1,4 @@
+# Regenerate with uv pip compile requirements-test-runner.in --generate-hashes --universal --python-version=3.11 --output-file=requirements-test-runner.txt
 paho-mqtt==2.1.0
 pytest-asyncio==1.4.1
 pytest-html==4.2.0
