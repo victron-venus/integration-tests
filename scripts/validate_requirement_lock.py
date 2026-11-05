@@ -77,6 +77,18 @@ def validate_uv_lock(inputs, project, lock):
         if not entries or any(package["version"] != pins[name] for package in entries):
             raise ValueError(f"uv lock is stale, conflicting or missing: {name}=={pins[name]}")
 
+def validate_mock_locks(root):
+    """Keep each mock image's exact source pins aligned with its hashed lock."""
+    for name in ("mock-battery", "mock-dbus", "mock-pv"):
+        try:
+            validate_lock(
+                (root / name / "requirements.in").read_text(),
+                (root / name / "requirements.txt").read_text(),
+            )
+        except ValueError as error:
+            raise ValueError(f"{name}: {error}") from error
+
+
 def main():
     root = Path(__file__).resolve().parents[1]
     validate_lock(
@@ -88,7 +100,8 @@ def main():
         (root / "pyproject.toml").read_text(),
         (root / "uv.lock").read_text(),
     )
-    print("Runner input pins match the hashed lock and project uv lock")
+    validate_mock_locks(root)
+    print("Runner and mock input pins match their hashed locks and project uv lock")
 
 
 if __name__ == "__main__":

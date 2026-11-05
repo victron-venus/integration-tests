@@ -19,20 +19,9 @@
     "**/fixtures/**",
     "**/tools/browser-compatibility/**",
     "security/provider/**",
-    "build-support/tls-armv7/**",
-    ".github/requirements-integration.txt"
+    "build-support/tls-armv7/**"
   ],
   "packageRules": [
-    {
-      "description": "Generated lock outputs are refreshed with their existing source workflow; their uv command headers are not supported by the pinned pip-compile manager.",
-      "matchManagers": [
-        "pip_requirements"
-      ],
-      "matchFileNames": [
-        ".github/requirements-integration.txt"
-      ],
-      "enabled": false
-    },
     {
       "description": "Generated locks are updated by pip-compile through their recorded source inputs; never edit the output pins independently.",
       "matchManagers": [
@@ -89,7 +78,8 @@
       "/^mock\\-battery/requirements\\.txt$/",
       "/^mock\\-dbus/requirements\\.txt$/",
       "/^mock\\-pv/requirements\\.txt$/",
-      "/^requirements\\-test\\-runner\\.txt$/"
+      "/^requirements\\-test\\-runner\\.txt$/",
+      "/^\\.github/requirements\\-integration\\.txt$/"
     ]
   }
 }
