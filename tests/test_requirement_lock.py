@@ -1,8 +1,10 @@
 """Regression coverage for dependency updates that leave the runner lock stale."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
-from scripts.validate_requirement_lock import validate_lock, validate_uv_lock
+from scripts.validate_requirement_lock import validate_lock, validate_mock_locks, validate_uv_lock
 
 HASH = "--hash=sha256:" + "a" * 64
 
@@ -32,6 +34,24 @@ class RequirementLockTests(unittest.TestCase):
         for inputs in ("", "websockets>=17.2", "-r other.in", "websockets==17.2\nwebsockets==17.2"):
             with self.subTest(inputs=inputs), self.assertRaises(ValueError):
                 validate_lock(inputs, f"websockets==17.2 {HASH}")
+
+
+class MockLockTests(unittest.TestCase):
+    def test_each_mock_rejects_an_input_update_without_its_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("mock-battery", "mock-dbus", "mock-pv"):
+                (root / name).mkdir()
+                (root / name / "requirements.in").write_text("paho-mqtt==2.1.0\n")
+                (root / name / "requirements.txt").write_text(f"paho-mqtt==2.1.0 {HASH}\n")
+            validate_mock_locks(root)
+            for name in ("mock-battery", "mock-dbus", "mock-pv"):
+                with self.subTest(mock=name):
+                    source = root / name / "requirements.in"
+                    source.write_text("paho-mqtt==2.2.0\n")
+                    with self.assertRaisesRegex(ValueError, f"{name}: .*stale or missing"):
+                        validate_mock_locks(root)
+                    source.write_text("paho-mqtt==2.1.0\n")
 
 
 class UvLockTests(unittest.TestCase):
