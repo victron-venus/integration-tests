@@ -1,2 +1,2 @@
 # Regenerate with uv pip compile mock-dbus/requirements.in --generate-hashes --universal --python-version=3.11 --output-file=mock-dbus/requirements.txt
-paho-mqtt==2.1.0
+paho-mqtt==2.2.0

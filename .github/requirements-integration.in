@@ -1,4 +1,4 @@
 # Regenerate with uv pip compile .github/requirements-integration.in --generate-hashes --universal --python-version=3.12 --output-file=.github/requirements-integration.txt
-pytest==9.1.1
-pytest-asyncio==1.4.0
-jsonschema==4.25.1
+pytest==9.2.0
+pytest-asyncio==1.5.0
+jsonschema==4.26.0
