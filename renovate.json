@@ -53,6 +53,19 @@
       "separateMajorMinor": false,
       "separateMinorPatch": false,
       "separateMultipleMajor": false
+    },
+    {
+      "description": "The pinned dashboard lock requires Python 3.14 wheels with --no-build. Keep patch and digest updates on this qualified minor until its dependency lock supports the next Python minor.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "matchFileNames": [
+        "dashboard-python.test.dockerfile"
+      ],
+      "allowedVersions": "/^3\\.14(?:[.-]|$)/"
     }
   ],
   "pip_requirements": {
