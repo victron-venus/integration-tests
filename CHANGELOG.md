@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.8] - Unreleased
+
+### Changed
+
+- keep local instruction files out of git.
+- add a navigation index for docs/.
+- isolate auto-merge base retarget events (#243).
+- validate the toolkit before scope regeneration (#237).
+- limit documentation pull requests to relevant checks (#236).
+- Migrate dependency updates to Renovate (#235).
+- reconcile lost creation responses (#232).
+- Validate release notes before reserving package versions (#230).
+- harden release reads and rerun validation (#229).
+
+### Upgrade
+
+Extract the new source suite into a separate directory and use its committed
+container definitions and dependency locks. Preserve local test configuration.
+No application-data migration is required.
+
+### Security
+
+This release refreshes the interpreter patch version used by synthetic device
+containers. Run the suite with isolated services and test credentials; publishing
+these source artifacts does not deploy applications or establish physical-device
+acceptance.
+
 ## [0.1.7] - 2026-11-02
 
 ### Changed
